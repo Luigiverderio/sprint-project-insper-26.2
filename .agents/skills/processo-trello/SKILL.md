@@ -7,6 +7,11 @@ description: Processo Scrum + Kanban do time no quadro Trello "Sprint 2ºSemestr
 
 Quadro: https://trello.com/b/qypssKqv/sprint-2semestre · sprint de 1 semana · a meta da sprint fica no topo do quadro e orienta a prioridade.
 
+## Papéis
+- PO: Vitor (vitoros1). Organiza e prioriza o Product Backlog e o Sprint Backlog e define o critério de aceite.
+- SM: Luigi (luigimv). Garante o processo (fluxo de branches, commits, card por mudança), vigia o WIP, conduz as cerimônias e remove impedimentos.
+- Dúvida de escopo ou prioridade → PO. Dúvida de processo ou bloqueio → SM.
+
 ## Colunas
 Product Backlog → Sprint Backlog → To - Do → Doing (WIP 4) → Revision (WIP 2) → Done.
 
