@@ -1,30 +1,36 @@
 # AGENTS.md
 
-Regras para todo agente (Codex, Claude Code) e membro do time. Fonte única: regras mudam só aqui.
+Regras para todo agente (Codex, Claude Code) e membro do time. Fonte única: regras mudam só aqui e nas skills de `.agents/skills/`.
 
 ## Projeto
 - Backend Python. Ambiente em `.venv`, segredos em `.env` (nunca ler, imprimir ou commitar).
 - Comandos (TODO: confirmar quando a stack fechar): `pip install -r requirements.txt` · `pytest` · `ruff check .` · `ruff format .`
 
 ## Branches
-- `main`: protegida. Só recebe merge de `develop`, feito por humano.
+- `main`: release. Só recebe merge `--ff-only` de `develop` verde; agente só faz quando o humano pedir explicitamente.
 - `develop`: integração e camada de teste. Base de todo trabalho; recebe só merges de branches de trabalho.
-- Trabalho: `<tipo>/<descricao-kebab>` (ex.: `feat/cadastro-usuario`), criada a partir de `develop` atualizada.
+- Trabalho: `<tipo>/us<nn>-<descricao-kebab>` (ex.: `feat/us01-coleta-posicoes`), criada a partir de `develop` atualizada. `us<nn>` = história do card.
 - Sem PRs: a integração é por merge local + push.
-- Proibido: commit direto em `main` ou `develop`; qualquer ação em `main`; `push --force` em `main`/`develop` (na própria branch, só `--force-with-lease`); apagar branches remotas.
+- Proibido: commit direto em `main` ou `develop`; `push --force` em `main`/`develop` (na própria branch, só `--force-with-lease`); apagar branches remotas.
 
 ## Fluxo
-1. `git switch develop && git pull --ff-only` → `git switch -c <tipo>/<descricao>`
-2. Antes de integrar: `git fetch && git rebase origin/develop`; testes e lint precisam passar.
-3. Merge (só quando o humano pedir): `git switch develop && git pull --ff-only && git merge --ff-only <branch>`.
+1. `git switch develop && git pull --ff-only` → `git switch -c <tipo>/us<nn>-<descricao>`
+2. Antes de integrar: `git fetch && git rebase origin/develop`; testes e lint precisam passar. Card → Revision; um colega revisa a branch.
+3. Merge após a revisão, só quando o humano pedir: `git switch develop && git pull --ff-only && git merge --ff-only <branch>`.
 4. Testes e lint de novo **na `develop`**. Passou → `git push origin develop`. Falhou → não faça push; desfaça com `git reset --hard origin/develop` e corrija na branch.
-5. Release (humano): `git switch main && git pull --ff-only && git merge --ff-only develop && git push origin main`, só com `develop` verde.
+5. Release (só com pedido explícito do humano): `git switch main && git pull --ff-only && git merge --ff-only develop && git push origin main`, só com `develop` verde.
+
+## Processo (Scrum + Kanban, quadro no Trello)
+- Toda mudança de código pertence a um card do quadro https://trello.com/b/qypssKqv/sprint-2semestre. Sem card, pergunte antes de começar.
+- Colunas, WIP, formato do card e movimentos: skill `processo-trello`.
+- Skills do time: fonte em `.agents/skills/<nome>/SKILL.md` (Codex); `.claude/skills/<nome>/SKILL.md` só aponta para ela (Claude Code).
 
 ## Commits (Conventional Commits)
 `<tipo>(<escopo>): <descrição>`
 - Tipos: `feat` `fix` `refactor` `test` `docs` `style` `perf` `build` `ci` `chore` `revert`.
 - Tipo/escopo em inglês minúsculo. Descrição em português, verbo no presente, minúscula, sem ponto, ≤72 caracteres.
 - Reutilize escopos existentes (`git log --oneline`). Um commit = uma mudança lógica. Quebra de compatibilidade: `!` + rodapé `BREAKING CHANGE:`.
+- Rodapé `Refs: US<nn>` ligando o commit à história.
 - Ex.: `feat(auth): adiciona login com JWT` · `fix(usuarios): corrige email duplicado`
 
 ## Regras de execução
@@ -35,7 +41,7 @@ Regras para todo agente (Codex, Claude Code) e membro do time. Fonte única: reg
 - Variável de ambiente nova → `.env.example` com valor fictício.
 - Requisito, schema ou contrato de API ambíguo → pergunte, não suponha.
 - Código em inglês (PEP 8, type hints em funções públicas). Testes em `tests/test_<modulo>.py`.
-- Não edite `AGENTS.md`/`CLAUDE.md` sem pedido explícito.
+- Não edite `AGENTS.md`/`CLAUDE.md`/skills sem pedido explícito.
 
 ## Pronto quando
-Branch rebaseada sobre `develop` · teste novo cobrindo a mudança · commits no padrão · sem segredos no diff · merge em `develop` com testes e lint verdes nela · push feito.
+Branch rebaseada sobre `develop` · teste novo cobrindo a mudança · commits no padrão · sem segredos no diff · revisado por colega · merge em `develop` com testes e lint verdes nela · push feito · card em Done atendendo o critério de aceite.
