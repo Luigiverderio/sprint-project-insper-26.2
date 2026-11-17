@@ -6,3 +6,5 @@
 # Configurações pessoais de agentes (não versionar)
 CLAUDE.local.md
 .claude/settings.local.json
+
+docs/
