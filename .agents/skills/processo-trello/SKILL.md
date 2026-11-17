@@ -19,7 +19,8 @@ O WIP não está configurado no Trello: conte os cards antes de mover. Coluna ch
   - tamanho: `P` (≤2h) · `M` (meio dia) · `G` (≥1 dia → quebrar em cards menores);
   - categoria: `CÓDIGO` · `DADOS` · `DESIGN` · `DOCUMENTAÇÃO`;
   - prioridade: `ALTA` · `MÉDIA` · `BAIXA`.
-- Datas criada/iniciada/pronta vêm do histórico do card (criação e movimentos); não preencha à mão.
+- Datas planejadas (opcional): início e entrega nos campos de data do card, definidos por quem planeja (ex.: PO).
+- Datas reais (criada/iniciada/pronta) vêm do histórico do card (criação e movimentos); não as registre à mão.
 - Card sem `US<nn>`, responsável ou etiquetas não sai de To - Do.
 
 ## Movimentos
