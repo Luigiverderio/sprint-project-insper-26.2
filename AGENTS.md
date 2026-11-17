@@ -9,12 +9,12 @@ Regras para todo agente (Codex, Claude Code) e membro do time. Fonte única: reg
 ## Branches
 - `main`: protegida. Só recebe merge de `develop`, feito por humano.
 - `develop`: integração e camada de teste. Base de todo trabalho; recebe só merges de branches de trabalho.
-- Trabalho: `<tipo>/h<n>-<descricao-kebab>` (ex.: `feat/h1-cadastro-usuario`), criada a partir de `develop` atualizada. `h<n>` = história do card.
+- Trabalho: `<tipo>/us<nn>-<descricao-kebab>` (ex.: `feat/us01-coleta-posicoes`), criada a partir de `develop` atualizada. `us<nn>` = história do card.
 - Sem PRs: a integração é por merge local + push.
 - Proibido: commit direto em `main` ou `develop`; qualquer ação em `main`; `push --force` em `main`/`develop` (na própria branch, só `--force-with-lease`); apagar branches remotas.
 
 ## Fluxo
-1. `git switch develop && git pull --ff-only` → `git switch -c <tipo>/h<n>-<descricao>`
+1. `git switch develop && git pull --ff-only` → `git switch -c <tipo>/us<nn>-<descricao>`
 2. Antes de integrar: `git fetch && git rebase origin/develop`; testes e lint precisam passar. Card → Revision; um colega revisa a branch.
 3. Merge após a revisão, só quando o humano pedir: `git switch develop && git pull --ff-only && git merge --ff-only <branch>`.
 4. Testes e lint de novo **na `develop`**. Passou → `git push origin develop`. Falhou → não faça push; desfaça com `git reset --hard origin/develop` e corrija na branch.
@@ -30,7 +30,7 @@ Regras para todo agente (Codex, Claude Code) e membro do time. Fonte única: reg
 - Tipos: `feat` `fix` `refactor` `test` `docs` `style` `perf` `build` `ci` `chore` `revert`.
 - Tipo/escopo em inglês minúsculo. Descrição em português, verbo no presente, minúscula, sem ponto, ≤72 caracteres.
 - Reutilize escopos existentes (`git log --oneline`). Um commit = uma mudança lógica. Quebra de compatibilidade: `!` + rodapé `BREAKING CHANGE:`.
-- Rodapé `Refs: H<n>` ligando o commit à história.
+- Rodapé `Refs: US<nn>` ligando o commit à história.
 - Ex.: `feat(auth): adiciona login com JWT` · `fix(usuarios): corrige email duplicado`
 
 ## Regras de execução

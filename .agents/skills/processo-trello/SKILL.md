@@ -13,14 +13,14 @@ Product Backlog → Sprint Backlog → To - Do → Doing (WIP 4) → Revision (W
 O WIP não está configurado no Trello: conte os cards antes de mover. Coluna cheia → não mova; reporte o gargalo.
 
 ## Card de tarefa
-- Título: `H<n> – <verbo + tarefa>` (ex.: `H1 – Criar repositórios back/frontend`). O `H<n>` liga card, branch (`feat/h1-...`) e commit (`Refs: H1`).
+- Título: `US<nn> – <verbo + tarefa>` (ex.: `US01 – Criar token da API Olho Vivo`). `US<nn>` é a história do documento de requisitos (US01–US32); `US00` = setup do projeto, sem história. Liga card, branch (`feat/us01-...`) e commit (`Refs: US01`).
 - Responsável: membro do card.
 - Etiquetas, uma de cada grupo:
   - tamanho: `P` (≤2h) · `M` (meio dia) · `G` (≥1 dia → quebrar em cards menores);
   - categoria: `CÓDIGO` · `DADOS` · `DESIGN` · `DOCUMENTAÇÃO`;
-  - prioridade: Alta · Média · Baixa.
+  - prioridade: `ALTA` · `MÉDIA` · `BAIXA`.
 - Datas criada/iniciada/pronta vêm do histórico do card (criação e movimentos); não preencha à mão.
-- Card sem `H<n>`, responsável ou etiquetas não sai de To - Do.
+- Card sem `US<nn>`, responsável ou etiquetas não sai de To - Do.
 
 ## Movimentos
 - Responsável: To - Do → Doing ao começar; Doing → Revision quando a branch está pronta para revisão.
