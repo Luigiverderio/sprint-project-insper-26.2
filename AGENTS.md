@@ -7,18 +7,18 @@ Regras para todo agente (Codex, Claude Code) e membro do time. Fonte única: reg
 - Comandos (TODO: confirmar quando a stack fechar): `pip install -r requirements.txt` · `pytest` · `ruff check .` · `ruff format .`
 
 ## Branches
-- `main`: protegida. Só recebe merge de `develop`, feito por humano.
+- `main`: release. Só recebe merge `--ff-only` de `develop` verde; agente só faz quando o humano pedir explicitamente.
 - `develop`: integração e camada de teste. Base de todo trabalho; recebe só merges de branches de trabalho.
 - Trabalho: `<tipo>/us<nn>-<descricao-kebab>` (ex.: `feat/us01-coleta-posicoes`), criada a partir de `develop` atualizada. `us<nn>` = história do card.
 - Sem PRs: a integração é por merge local + push.
-- Proibido: commit direto em `main` ou `develop`; qualquer ação em `main`; `push --force` em `main`/`develop` (na própria branch, só `--force-with-lease`); apagar branches remotas.
+- Proibido: commit direto em `main` ou `develop`; `push --force` em `main`/`develop` (na própria branch, só `--force-with-lease`); apagar branches remotas.
 
 ## Fluxo
 1. `git switch develop && git pull --ff-only` → `git switch -c <tipo>/us<nn>-<descricao>`
 2. Antes de integrar: `git fetch && git rebase origin/develop`; testes e lint precisam passar. Card → Revision; um colega revisa a branch.
 3. Merge após a revisão, só quando o humano pedir: `git switch develop && git pull --ff-only && git merge --ff-only <branch>`.
 4. Testes e lint de novo **na `develop`**. Passou → `git push origin develop`. Falhou → não faça push; desfaça com `git reset --hard origin/develop` e corrija na branch.
-5. Release (humano): `git switch main && git pull --ff-only && git merge --ff-only develop && git push origin main`, só com `develop` verde.
+5. Release (só com pedido explícito do humano): `git switch main && git pull --ff-only && git merge --ff-only develop && git push origin main`, só com `develop` verde.
 
 ## Processo (Scrum + Kanban, quadro no Trello)
 - Toda mudança de código pertence a um card do quadro https://trello.com/b/qypssKqv/sprint-2semestre. Sem card, pergunte antes de começar.
