@@ -1,4 +1,4 @@
-.PHONY: install dev test lint format up down logs
+.PHONY: install dev test lint format up down logs db-reset
 
 # Comandos simples, sem sintaxe de shell, para funcionar no PowerShell e no Git Bash.
 
@@ -20,7 +20,7 @@ lint:
 format:
 	uv run --locked ruff format .
 
-# Docker: API e worker (docker-compose.yml). O banco entra depois.
+# Docker: banco, API e worker (docker-compose.yml).
 up:
 	docker compose up -d --build --wait
 
@@ -29,3 +29,9 @@ down:
 
 logs:
 	docker compose logs -f
+
+# Apaga os dados do banco e sobe tudo de novo. Os scripts de db/init/ só rodam
+# com o volume vazio: use depois de mudar algum deles ou as senhas do .env.
+db-reset:
+	docker compose down -v
+	docker compose up -d --build --wait

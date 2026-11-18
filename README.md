@@ -42,13 +42,14 @@ Mantenha tokens e senhas em .env. Esse arquivo fica fora do Git.
 ## Ambiente com Docker
 
 ```sh
-make up    # constrói e sobe a API e o worker; espera ficarem saudáveis
-make down  # para tudo
-make logs  # acompanha os logs
+make up        # constrói e sobe banco, API e worker; espera ficarem saudáveis
+make down      # para tudo (os dados do banco ficam no volume)
+make logs      # acompanha os logs
+make db-reset  # apaga os dados do banco e recria tudo do zero
 ```
 
 - API: http://127.0.0.1:8000/docs. Mude API_PORT no .env se a porta estiver ocupada.
-- O banco (PostgreSQL + PostGIS) ainda não está no compose. Ele entra quando o banco do time estiver definido.
+- Banco: PostgreSQL 17 + PostGIS + pg_partman em localhost:5432 (mude DB_PORT no .env se a porta estiver ocupada). Na primeira subida, os scripts de db/init/ criam extensões, schemas e papéis. Depois de mudar esses scripts ou as senhas do .env, rode make db-reset. O modelo está em docs/modelo-banco.md.
 - O código entra na imagem, sem bind mount. Depois de mudar o código, rode make up de novo, que reconstrói só o que mudou. Para iterar rápido na API, use make dev fora do Docker.
 - O front tem o próprio Docker no repositório dele e chama a API em http://localhost:8000.
 
@@ -93,13 +94,14 @@ Os hooks usam a versão do Ruff instalada pelo uv.lock.
 - src/onibus/coleta/ — clientes e rotinas de coleta.
 - src/onibus/processamento/ — processamento dos workers (python -m onibus.processamento).
 - src/onibus/config.py — configuração por pydantic-settings.
-- db/init/, db/migrations/, db/seeds/ — inicialização, migrações e dados de teste.
+- db/Dockerfile, db/init/ — imagem do banco e scripts de criação (extensões, schemas e papéis).
+- db/migrations/, db/seeds/ — migrações e dados de teste.
 - Dockerfile, docker-compose.yml — imagem da API e do worker, e o ambiente local.
 - tests/ — testes automatizados.
 - docs/adr-001.md — decisões de arquitetura do time.
 - legado_r/ — espaço reservado para referências e gabaritos do parceiro.
 
-O schema do banco e as migrações Alembic entram nos cards T5 e T6.
+O modelo do banco está em docs/modelo-banco.md. As migrações Alembic entram no card T6.
 As dependências de banco e testes de integração já estão declaradas conforme o T1.
 
 ## Fluxo do time

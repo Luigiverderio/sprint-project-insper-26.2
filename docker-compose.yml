@@ -1,8 +1,8 @@
-# Ambiente local do backend: API e worker. Suba com `make up`.
+# Ambiente local do backend: banco, API e worker. Suba com `make up`.
 # Valores vêm do .env (copie de .env.example).
-# O banco (PostGIS + pg_partman) entra quando o time tiver o banco definido.
-# Sem bind mounts: o código entra na imagem e `make up` reconstrói o que mudou.
-# Assim ninguém precisa liberar pastas no File Sharing do Docker Desktop.
+# Sem bind mounts: o código e os scripts do banco entram nas imagens, e `make up`
+# reconstrói o que mudou. Assim ninguém precisa liberar pastas no File Sharing
+# do Docker Desktop.
 name: onibus
 
 x-app: &app
@@ -13,6 +13,27 @@ x-app: &app
       required: false
 
 services:
+  db:
+    build: ./db
+    image: onibus-db:dev
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-onibus}
+      POSTGRES_USER: ${POSTGRES_USER:-onibus_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      DB_WRITER_PASSWORD: ${DB_WRITER_PASSWORD:?defina DB_WRITER_PASSWORD no .env}
+      DB_READER_PASSWORD: ${DB_READER_PASSWORD:?defina DB_READER_PASSWORD no .env}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - dados_banco:/var/lib/postgresql/data
+    healthcheck:
+      # -h 127.0.0.1 força TCP. Enquanto os scripts de db/init/ rodam, o Postgres
+      # só aceita socket local; assim o banco só fica saudável depois deles.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   api:
     <<: *app
     ports:
@@ -26,3 +47,6 @@ services:
   worker:
     <<: *app
     command: ["python", "-m", "onibus.processamento"]
+
+volumes:
+  dados_banco:
