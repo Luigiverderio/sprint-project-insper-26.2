@@ -31,7 +31,7 @@ Regras para todo agente (Codex, Claude Code) e membro do time. Fonte única: reg
 - Um commit = uma mudança lógica; reutilize escopos (`git log --oneline`). Quebra de compatibilidade: `!` + rodapé `BREAKING CHANGE:`.
 
 ## Regras de execução
-- Toda mudança pertence a um card do quadro https://trello.com/b/qypssKqv/sprint-2semestre; sem card, pergunte. Processo do quadro: skill `processo-trello`.
+- Toda mudança pertence a um card do quadro https://trello.com/b/qypssKqv/sprint-2semestre; sem card, pergunte. Antes de qualquer ação no Trello (mesmo só leitura), carregue a skill `processo-trello`.
 - Commit e push só quando o humano pedir; confira a branch atual antes.
 - Siga os padrões do código; altere só o escopo da tarefa, sem refatorar ou reformatar fora dele.
 - Mudança de comportamento exige teste em `tests/test_<modulo>.py`. Não desative testes para passar; se algo falhar, reporte.

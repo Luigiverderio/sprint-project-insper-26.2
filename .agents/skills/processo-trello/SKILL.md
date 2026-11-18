@@ -1,6 +1,6 @@
 ---
 name: processo-trello
-description: Processo Scrum + Kanban do time no quadro Trello "Sprint 2ºSemestre". Use ao iniciar, revisar ou concluir uma tarefa, ao criar ou mover cards, ao escolher a próxima tarefa ou ao nomear branch e commit a partir de um card.
+description: Processo Scrum + Kanban do time no quadro Trello "Sprint 2ºSemestre". Use SEMPRE antes de qualquer ação de um agente no Trello (ler o quadro; criar, editar, mover, comentar ou arquivar cards e listas), seja por conector/MCP do Trello, navegador ou API. Use também ao iniciar, revisar ou concluir uma tarefa, ao escolher a próxima tarefa ou ao nomear branch e commit a partir de um card.
 ---
 
 # Processo no Trello (Scrum + Kanban)
@@ -13,9 +13,11 @@ Quadro: https://trello.com/b/qypssKqv/sprint-2semestre · sprint de 1 semana · 
 - Dúvida de escopo ou prioridade → PO. Dúvida de processo ou bloqueio → SM.
 
 ## Colunas
-Product Backlog → Sprint Backlog → To - Do → Doing (WIP 4) → Revision (WIP 2) → Done.
+`Product Backlog` → `Sprint Backlog` → `To - Do` → `Doing (WIP 4)` → `Revision (WIP 2)` → `Done`.
 
-O WIP não está configurado no Trello: conte os cards antes de mover. Coluna cheia → não mova; reporte o gargalo.
+Esses são os nomes exatos das listas no Trello; use-os ao procurar ou mover cards.
+
+O WIP (4 em Doing, 2 em Revision) fica só no nome da lista: o plano do Trello não tem limite nativo e nada bloqueia. Conte os cards antes de mover. Lista cheia → não mova; reporte o gargalo ao SM.
 
 ## Card de tarefa
 - Título: `<id> – <descrição>`. `H<nn>` = história do documento de requisitos (H1–H32); `T<nn>` = tarefa técnica sem história. O id liga card, branch (`feat/h22-...`) e commit (`Refs: H22`).
@@ -29,10 +31,12 @@ O WIP não está configurado no Trello: conte os cards antes de mover. Coluna ch
 - Card sem id (`H<nn>`/`T<nn>`), responsável ou etiquetas não sai de To - Do.
 
 ## Movimentos
-- Responsável: To - Do → Doing ao começar; Doing → Revision quando a branch está pronta para revisão.
-- O merge na `develop` pode vir antes da revisão (quando o humano pedir); o card continua em Revision.
-- Revisor (um colega): Revision → Done após revisar, com o merge na `develop` verde e o critério de aceite atendido.
+- Responsável: `To - Do` → `Doing (WIP 4)` ao começar; `Doing (WIP 4)` → `Revision (WIP 2)` quando a branch está pronta para revisão.
+- O merge na `develop` pode vir antes da revisão (quando o humano pedir); o card continua em `Revision (WIP 2)`.
+- Revisor (um colega, nunca o responsável): `Revision (WIP 2)` → `Done` após revisar, com o merge na `develop` verde e o critério de aceite atendido.
 
 ## Agentes
+- Carregue esta skill antes de qualquer ação no Trello, mesmo só leitura.
 - Com acesso ao Trello: atualize só o card da tarefa atual. Sem acesso: diga ao humano o que mover.
+- Não renomeie listas nem mude o WIP sem pedido do humano; se mudarem, atualize esta skill na mesma tarefa.
 - Sem card para a tarefa: pergunte antes de começar.
