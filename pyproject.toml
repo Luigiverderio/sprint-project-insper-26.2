@@ -13,6 +13,8 @@ dependencies = [
     "asyncpg",
     "alembic",
     "geoalchemy2",
+    "httpx",
+    "tenacity",
 ]
 
 [dependency-groups]
