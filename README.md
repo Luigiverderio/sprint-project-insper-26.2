@@ -3,9 +3,23 @@
 Backend da plataforma de auditoria cidadã dos ônibus de São Paulo.
 A base usa Python 3.12, FastAPI e uv.
 
+## Pré-requisitos
+
+- Git
+- [Docker Desktop](https://docs.docker.com/desktop/) (no Windows, com WSL2)
+- [uv](https://docs.astral.sh/uv/getting-started/installation/), que instala o Python 3.12
+- GNU Make
+- Node 20+ (só para o front)
+
+No Windows, uv e make saem pelo winget. Abra um terminal novo depois, para o PATH valer:
+
+```powershell
+winget install --id astral-sh.uv -e
+winget install --id ezwinports.make -e
+```
+
 ## Instalação
 
-Instale Git e [uv](https://docs.astral.sh/uv/getting-started/installation/).
 Na raiz deste repositório, execute:
 
 ```sh
@@ -24,6 +38,19 @@ Copy-Item .env.example .env
 ```
 
 Mantenha tokens e senhas em .env. Esse arquivo fica fora do Git.
+
+## Ambiente com Docker
+
+```sh
+make up    # constrói e sobe a API e o worker; espera ficarem saudáveis
+make down  # para tudo
+make logs  # acompanha os logs
+```
+
+- API: http://127.0.0.1:8000/docs. Mude API_PORT no .env se a porta estiver ocupada.
+- O banco (PostgreSQL + PostGIS) ainda não está no compose. Ele entra quando o banco do time estiver definido.
+- O código entra na imagem, sem bind mount. Depois de mudar o código, rode make up de novo, que reconstrói só o que mudou. Para iterar rápido na API, use make dev fora do Docker.
+- O front tem o próprio Docker no repositório dele e chama a API em http://localhost:8000.
 
 ## Executar a API
 
@@ -47,6 +74,7 @@ uv run --locked mypy
 
 Com GNU Make instalado, use make test e make lint.
 No Windows, os comandos uv acima também funcionam diretamente no PowerShell.
+Se o Windows bloquear o mypy.exe ("política de Controle de Aplicativo"), use uv run --locked python -m mypy, que é o que o make lint faz.
 Para formatar, execute uv run --locked ruff format .
 
 Instale os hooks locais depois de uv sync:
@@ -63,14 +91,15 @@ Os hooks usam a versão do Ruff instalada pelo uv.lock.
 - src/onibus/api/ — aplicação HTTP.
 - src/onibus/db/ — acesso ao banco.
 - src/onibus/coleta/ — clientes e rotinas de coleta.
-- src/onibus/processamento/ — processamento dos workers.
+- src/onibus/processamento/ — processamento dos workers (python -m onibus.processamento).
 - src/onibus/config.py — configuração por pydantic-settings.
 - db/init/, db/migrations/, db/seeds/ — inicialização, migrações e dados de teste.
+- Dockerfile, docker-compose.yml — imagem da API e do worker, e o ambiente local.
 - tests/ — testes automatizados.
 - docs/adr-001.md — decisões de arquitetura do time.
 - legado_r/ — espaço reservado para referências e gabaritos do parceiro.
 
-O Docker Compose e os comandos de banco entram nos cards T4 a T6.
+O schema do banco e as migrações Alembic entram nos cards T5 e T6.
 As dependências de banco e testes de integração já estão declaradas conforme o T1.
 
 ## Fluxo do time
