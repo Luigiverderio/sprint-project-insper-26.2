@@ -1,0 +1,28 @@
+# Ambiente local do backend: API e worker. Suba com `make up`.
+# Valores vêm do .env (copie de .env.example).
+# O banco (PostGIS + pg_partman) entra quando o time tiver o banco definido.
+# Sem bind mounts: o código entra na imagem e `make up` reconstrói o que mudou.
+# Assim ninguém precisa liberar pastas no File Sharing do Docker Desktop.
+name: onibus
+
+x-app: &app
+  build: .
+  image: onibus-backend:dev
+  env_file:
+    - path: .env
+      required: false
+
+services:
+  api:
+    <<: *app
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "onibus.processamento"]
