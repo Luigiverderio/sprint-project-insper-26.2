@@ -7,4 +7,6 @@
 CLAUDE.local.md
 .claude/settings.local.json
 
-docs/
+# docs/ fica fora do git, exceto os ADRs (decisões do time)
+docs/*
+!docs/adr-*.md
