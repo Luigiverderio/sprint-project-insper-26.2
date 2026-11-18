@@ -8,6 +8,8 @@ Cada método faz uma única tentativa. O retry fica no coletor
 (:mod:`onibus.coleta.coletor`), que conta as tentativas por ciclo.
 """
 
+import logging
+import re
 from datetime import datetime
 from types import TracebackType
 from typing import Self
@@ -17,6 +19,29 @@ from pydantic import BaseModel, ConfigDict, Field
 
 DEFAULT_BASE_URL = "https://api.olhovivo.sptrans.com.br/v2.1"
 DEFAULT_TIMEOUT = httpx.Timeout(10.0)
+
+_TOKEN_IN_URL = re.compile(r"(token=)[^&\s\"']+")
+
+
+class RedactTokenFilter(logging.Filter):
+    """Troca o token por ``***`` nos logs do httpx.
+
+    O login exige o token na query string, e o httpx registra a URL de toda
+    requisição em nível INFO. Sem este filtro o token iria para os logs.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        redacted = _TOKEN_IN_URL.sub(r"\1***", message)
+        if redacted != message:
+            record.msg = redacted
+            record.args = None
+        return True
+
+
+_httpx_logger = logging.getLogger("httpx")
+if not any(isinstance(f, RedactTokenFilter) for f in _httpx_logger.filters):
+    _httpx_logger.addFilter(RedactTokenFilter())
 
 
 class OlhoVivoError(Exception):

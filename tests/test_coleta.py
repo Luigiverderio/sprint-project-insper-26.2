@@ -117,6 +117,16 @@ async def test_client_authenticates_and_parses_positions() -> None:
     assert snapshot.vehicle_count == 2
 
 
+async def test_token_is_not_logged(caplog: pytest.LogCaptureFixture) -> None:
+    api = FakeOlhoVivo(token="secret-token")
+    with caplog.at_level(logging.DEBUG):
+        async with api.client(token="secret-token") as client:
+            await client.get_positions()
+
+    assert "Login/Autenticar?token=***" in caplog.text
+    assert "secret-token" not in caplog.text
+
+
 async def test_client_reuses_session_between_calls() -> None:
     api = FakeOlhoVivo()
     async with api.client() as client:
