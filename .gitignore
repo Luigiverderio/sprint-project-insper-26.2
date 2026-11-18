@@ -10,3 +10,14 @@ CLAUDE.local.md
 # docs/ fica fora do git, exceto os ADRs (decisões do time)
 docs/*
 !docs/adr-*.md
+
+# Python e ferramentas de qualidade
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+*.egg-info/

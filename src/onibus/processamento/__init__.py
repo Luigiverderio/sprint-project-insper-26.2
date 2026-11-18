@@ -1,0 +1,1 @@
+"""Processamento executado pelos workers."""
