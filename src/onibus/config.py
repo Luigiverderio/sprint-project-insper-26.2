@@ -2,6 +2,7 @@
 
 from typing import Literal
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,3 +19,4 @@ class Settings(BaseSettings):
     name: str = "Ônibus Backend"
     environment: Literal["development", "test", "production"] = "development"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    olho_vivo_token: SecretStr | None = None
