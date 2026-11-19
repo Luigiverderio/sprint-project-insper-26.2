@@ -59,20 +59,42 @@ make db-reset      # APAGA os dados e recria o banco do zero, com todas as migra
 - Toda mudança no esquema é uma migração nova. Depois de atualizar a branch, rode make migrate. Convenções e checklist de revisão: db/migrations/README.md.
 - Banco local criado antes do T6 (com o esquema aplicado na primeira subida): rode make db-reset uma vez. Ele apaga os dados, que por enquanto são só de teste, e recria o banco pelas migrações.
 - O pg_partman cria as partições dos meses seguintes sozinho, a cada hora, dentro do próprio banco. Confira com make psql e SELECT * FROM operacao.saude_particoes (ok deve ser true).
-- Os papéis onibus_coletor, onibus_worker e onibus_leitura existem sem login. Os usuários de cada serviço (api_app etc.) ainda não são criados: a API e o worker não usam o banco por enquanto, e o usuário postgres é só para desenvolvimento.
+- O banco cria os papéis de grupo `onibus_coletor`, `onibus_worker` e `onibus_leitura`. Para conectar a API, configure um login próprio para ela.
 - O código entra na imagem, sem bind mount. Depois de mudar o código, rode make up de novo, que reconstrói só o que mudou. Para iterar rápido na API, use make dev fora do Docker.
 - O front tem o próprio Docker no repositório dele e chama a API em http://localhost:8000.
 
 ## Executar a API
+
+No ambiente local, suba o banco, aplique o esquema com `make migrate` e abra
+o `psql` com `make psql`.
+Crie o login da API uma vez por ambiente e defina a senha quando o `psql` solicitar.
+
+```sql
+CREATE ROLE api_app LOGIN IN ROLE onibus_leitura;
+ALTER ROLE api_app SET statement_timeout = '3s';
+ALTER ROLE api_app SET default_transaction_read_only = on;
+\password api_app
+```
+
+Defina a mesma senha em `APP_DATABASE_PASSWORD` no seu `.env`.
+Se a API estiver no Compose, aplique a configuração com `docker compose up -d api`.
+Se executar a API diretamente na máquina, configure `APP_DATABASE_HOST`,
+`APP_DATABASE_PORT` e `APP_DATABASE_NAME` para o banco publicado pelo Compose.
+Configure `APP_CORS_ORIGINS` como uma lista JSON das origens permitidas do frontend.
 
 ```sh
 uv run --locked uvicorn onibus.api.main:create_app --factory --reload
 ```
 
 Abra a documentação em http://127.0.0.1:8000/docs.
-O módulo expõe uma app factory para criar instâncias isoladas nos testes.
-A base do T1 oferece inicialização e documentação OpenAPI.
-A conexão com o banco, /health, CORS e rotas /v1 entram no T10.
+As rotas públicas usam o prefixo `/v1`. O endpoint operacional `GET /health`
+fica na raiz e responde com HTTP 200 quando a API consegue consultar o banco.
+`last_collection_at` traz o horário de conclusão do último ciclo de posições
+do Olho Vivo, inclusive em caso de falha na coleta. O valor é `null` até o
+primeiro ciclo registrado. Se o banco estiver indisponível ou o login ainda
+não estiver configurado, o endpoint retorna HTTP 503.
+
+Os erros da API usam o formato `{"error": {"code": "...", "message": "..."}}`.
 
 ## Coletar da Olho Vivo
 

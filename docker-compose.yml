@@ -48,6 +48,10 @@ services:
 
   api:
     <<: *app
+    environment:
+      APP_DATABASE_HOST: db
+      APP_DATABASE_PORT: 5432
+      APP_DATABASE_NAME: ${POSTGRES_DB:-onibus}
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     healthcheck:

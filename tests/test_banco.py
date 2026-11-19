@@ -6,12 +6,18 @@ Sobem um PostgreSQL descartável com testcontainers, na mesma imagem do
 """
 
 from collections.abc import Callable, Iterator
+from datetime import datetime
 
 import pytest
 from alembic import command
 from alembic.config import Config
+from fastapi.testclient import TestClient
+from pydantic import SecretStr
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.core.container import ExecConfig
+
+from onibus.api.main import create_app
+from onibus.config import Settings
 
 DB_NAME = "onibus"
 ADMIN = "postgres"
@@ -179,3 +185,46 @@ def test_role_without_group_cannot_connect(db: PostgresContainer) -> None:
 
     assert exit_code != 0
     assert "permission denied for database" in output, output
+
+
+def test_health_reads_last_olho_vivo_cycle_as_api_login(db: PostgresContainer) -> None:
+    settings = Settings(
+        database_host=db.get_container_host_ip(),
+        database_port=int(db.get_exposed_port(5432)),
+        database_name=DB_NAME,
+        database_user=API,
+        database_password=SecretStr(PASSWORDS[API]),
+    )
+
+    with TestClient(create_app(settings)) as client:
+        empty = client.get("/health")
+        assert empty.status_code == 200
+        assert empty.json() == {"status": "ok", "last_collection_at": None}
+
+        exit_code, output = run_sql(
+            db,
+            COLETOR,
+            """
+            INSERT INTO bruto.ciclos_coleta
+                (fonte, iniciado_em, concluido_em, status, versao_coletor, erro)
+            VALUES
+                ('olhovivo_posicao', '2026-11-19 11:00Z', '2026-11-19 11:01Z',
+                 'ok', 'teste', NULL),
+                ('olhovivo_posicao', '2026-11-19 12:00Z', '2026-11-19 12:01Z',
+                 'erro_rede', 'teste', 'erro simulado'),
+                ('gtfs', '2026-11-19 13:00Z', '2026-11-19 13:01Z',
+                 'ok', 'teste', NULL)
+            """,
+        )
+        assert exit_code == 0, output
+        response = client.get("/health")
+        assert response.status_code == 200
+        assert datetime.fromisoformat(
+            response.json()["last_collection_at"]
+        ) == datetime.fromisoformat("2026-11-19T12:01:00+00:00")
+
+    settings.database_password = SecretStr("senha-incorreta")
+    with TestClient(create_app(settings)) as client:
+        unavailable = client.get("/health")
+        assert unavailable.status_code == 503
+        assert unavailable.json()["error"]["code"] == "service_unavailable"

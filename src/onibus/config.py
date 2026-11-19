@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     environment: Literal["development", "test", "production"] = "development"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     olho_vivo_token: SecretStr | None = None
+    database_host: str = "127.0.0.1"
+    database_port: int = Field(default=5432, ge=1, le=65535)
+    database_name: str = "onibus"
+    database_user: str = "api_app"
+    database_password: SecretStr | None = None
+    cors_origins: list[str] = Field(default_factory=list)
 
 
 class MigrationSettings(BaseSettings):

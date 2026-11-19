@@ -21,11 +21,9 @@ def isolate_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Impede que os testes carreguem configurações locais ou segredos."""
     monkeypatch.setitem(Settings.model_config, "env_file", None)
     monkeypatch.setitem(MigrationSettings.model_config, "env_file", None)
+    for field in Settings.model_fields:
+        monkeypatch.delenv(f"APP_{field.upper()}", raising=False)
     for name in (
-        "APP_NAME",
-        "APP_ENVIRONMENT",
-        "APP_LOG_LEVEL",
-        "APP_OLHO_VIVO_TOKEN",
         "POSTGRES_HOST",
         "POSTGRES_DB",
         "POSTGRES_USER",
