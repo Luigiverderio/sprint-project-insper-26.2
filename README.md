@@ -71,12 +71,16 @@ Crie o login da API uma vez por ambiente e defina a senha quando o `psql` solici
 
 ```sql
 CREATE ROLE api_app LOGIN IN ROLE onibus_leitura;
-ALTER ROLE api_app SET statement_timeout = '3s';
+ALTER ROLE api_app SET statement_timeout = '10s';
 ALTER ROLE api_app SET default_transaction_read_only = on;
 \password api_app
 ```
 
-Defina a mesma senha em `APP_API_DATABASE_PASSWORD` no seu `.env`.
+O `statement_timeout` segue o modelo do banco (`docs/modelo_banco`). A API ainda
+corta cada consulta em 3 s do lado do cliente.
+
+Defina a mesma senha em `APP_API_DATABASE_PASSWORD` no seu `.env`. Sem ela, a API
+sobe, registra um aviso no log e o `/health` responde 503.
 Se a API estiver no Compose, aplique a configuração com `docker compose up -d api`.
 Se executar a API diretamente na máquina, configure `APP_DATABASE_HOST`,
 `APP_DATABASE_PORT` e `APP_DATABASE_NAME` para o banco publicado pelo Compose.
@@ -90,9 +94,11 @@ Abra a documentação em http://127.0.0.1:8000/docs.
 As rotas públicas usam o prefixo `/v1`. O endpoint operacional `GET /health`
 fica na raiz e responde com HTTP 200 quando a API consegue consultar o banco.
 `last_collection_at` traz o horário de conclusão do último ciclo de posições
-do Olho Vivo, inclusive em caso de falha na coleta. O valor é `null` até o
-primeiro ciclo registrado. Se o banco estiver indisponível ou o login ainda
-não estiver configurado, o endpoint retorna HTTP 503.
+do Olho Vivo, inclusive em caso de falha na coleta.
+`last_successful_collection_at` traz o do último ciclo com sucesso. Se ele ficar
+para trás de `last_collection_at`, o coletor está rodando, mas falhando.
+Os dois valores são `null` até o primeiro ciclo registrado. Se o banco estiver
+indisponível ou o login ainda não estiver configurado, o endpoint retorna HTTP 503.
 
 Os erros da API usam o formato `{"error": {"code": "...", "message": "..."}}`.
 

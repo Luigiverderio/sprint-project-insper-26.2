@@ -26,7 +26,8 @@ def error_response(
 
 
 async def handle_http_error(request: Request, exc: Exception) -> JSONResponse:
-    assert isinstance(exc, HTTPException)
+    if not isinstance(exc, HTTPException):
+        return await handle_unexpected_error(request, exc)
     try:
         code = HTTPStatus(exc.status_code).name.lower()
     except ValueError:

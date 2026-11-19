@@ -1,12 +1,20 @@
 """Conexão assíncrona da API com o PostgreSQL."""
 
+from dataclasses import dataclass
 from datetime import datetime
-from typing import cast
 
 from sqlalchemy import URL, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from onibus.config import Settings
+
+
+@dataclass(frozen=True)
+class CollectionHealth:
+    """Últimos ciclos de coleta de posições da Olho Vivo."""
+
+    last_collection_at: datetime | None
+    last_successful_collection_at: datetime | None
 
 
 def create_read_engine(settings: Settings) -> AsyncEngine | None:
@@ -31,16 +39,21 @@ def create_read_engine(settings: Settings) -> AsyncEngine | None:
     )
 
 
-async def get_last_collection_at(engine: AsyncEngine) -> datetime | None:
+async def get_collection_health(engine: AsyncEngine) -> CollectionHealth:
     """Consulta a saúde da coleta de posições com as permissões da API."""
     async with engine.connect() as connection:
         result = await connection.execute(
             text(
                 """
-                SELECT GREATEST(ultimo_ok, ultimo_erro)
+                SELECT GREATEST(ultimo_ok, ultimo_erro), ultimo_ok
                 FROM operacao.saude_coleta
                 WHERE fonte = 'olhovivo_posicao'
                 """
             )
         )
-        return cast("datetime | None", result.scalar_one_or_none())
+        row = result.one_or_none()
+    if row is None:
+        return CollectionHealth(None, None)
+    return CollectionHealth(
+        last_collection_at=row[0], last_successful_collection_at=row[1]
+    )

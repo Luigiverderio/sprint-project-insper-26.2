@@ -9,7 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from onibus.api.errors import ErrorResponse
-from onibus.db.connection import get_last_collection_at
+from onibus.db.connection import get_collection_health
 
 router = APIRouter(tags=["health"])
 logger = logging.getLogger(__name__)
@@ -17,7 +17,11 @@ logger = logging.getLogger(__name__)
 
 class HealthResponse(BaseModel):
     status: str = "ok"
+    # Último ciclo de posições concluído, com sucesso ou falha.
     last_collection_at: datetime | None
+    # Último ciclo de posições com sucesso: se ficar para trás de
+    # last_collection_at, o coletor está rodando mas falhando.
+    last_successful_collection_at: datetime | None
 
 
 @router.get(
@@ -30,9 +34,12 @@ async def health(request: Request) -> HealthResponse:
         raise HTTPException(503, "Database unavailable.")
 
     try:
-        last_collection_at = await get_last_collection_at(engine)
+        collection = await get_collection_health(engine)
     except (SQLAlchemyError, OSError) as exc:
         logger.warning("Database health check failed: %s", type(exc).__name__)
         raise HTTPException(503, "Database unavailable.") from exc
 
-    return HealthResponse(last_collection_at=last_collection_at)
+    return HealthResponse(
+        last_collection_at=collection.last_collection_at,
+        last_successful_collection_at=collection.last_successful_collection_at,
+    )

@@ -199,7 +199,11 @@ def test_health_reads_last_olho_vivo_cycle_as_api_login(db: PostgresContainer) -
     with TestClient(create_app(settings)) as client:
         empty = client.get("/health")
         assert empty.status_code == 200
-        assert empty.json() == {"status": "ok", "last_collection_at": None}
+        assert empty.json() == {
+            "status": "ok",
+            "last_collection_at": None,
+            "last_successful_collection_at": None,
+        }
 
         exit_code, output = run_sql(
             db,
@@ -219,9 +223,15 @@ def test_health_reads_last_olho_vivo_cycle_as_api_login(db: PostgresContainer) -
         assert exit_code == 0, output
         response = client.get("/health")
         assert response.status_code == 200
+        body = response.json()
+        # O último ciclo falhou: os dois horários mostram que o coletor roda,
+        # mas não grava com sucesso desde 11:01.
         assert datetime.fromisoformat(
-            response.json()["last_collection_at"]
+            body["last_collection_at"]
         ) == datetime.fromisoformat("2026-11-19T12:01:00+00:00")
+        assert datetime.fromisoformat(
+            body["last_successful_collection_at"]
+        ) == datetime.fromisoformat("2026-11-19T11:01:00+00:00")
 
     settings.api_database_password = SecretStr("senha-incorreta")
     with TestClient(create_app(settings)) as client:

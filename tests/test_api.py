@@ -1,11 +1,13 @@
+import json
 import logging
 import socket
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from onibus.api.errors import handle_http_error
 from onibus.api.main import create_app, v1_router
 from onibus.config import Settings
 
@@ -54,14 +56,17 @@ def test_app_applies_log_level_with_existing_handlers(
         assert caplog.messages == expected_messages
 
 
-def test_health_returns_503_without_database_configuration() -> None:
-    with TestClient(create_app()) as client:
+def test_health_returns_503_without_database_configuration(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING), TestClient(create_app()) as client:
         response = client.get("/health")
 
     assert response.status_code == 503
     assert response.json() == {
         "error": {"code": "service_unavailable", "message": "Database unavailable."}
     }
+    assert "APP_API_DATABASE_PASSWORD is not set" in caplog.text
 
 
 def test_api_database_login_uses_its_own_variables(
@@ -77,6 +82,17 @@ def test_api_database_login_uses_its_own_variables(
     assert settings.api_database_user == "api_login"
     assert settings.api_database_password is not None
     assert settings.api_database_password.get_secret_value() == "api-secret"
+
+
+async def test_http_error_handler_falls_back_for_other_exceptions() -> None:
+    request = Request({"type": "http", "method": "GET", "path": "/", "headers": []})
+
+    response = await handle_http_error(request, RuntimeError("private detail"))
+
+    assert response.status_code == 500
+    assert json.loads(bytes(response.body)) == {
+        "error": {"code": "internal_server_error", "message": "Internal server error."}
+    }
 
 
 def test_health_returns_503_when_database_is_down() -> None:

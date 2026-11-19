@@ -40,6 +40,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         engine = create_read_engine(settings)
         app.state.read_engine = engine
+        if engine is None:
+            logger.warning(
+                "APP_API_DATABASE_PASSWORD is not set: /health will answer 503"
+            )
         logger.info("Application started environment=%s", settings.environment)
         try:
             yield
