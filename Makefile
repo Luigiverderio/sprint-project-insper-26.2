@@ -1,4 +1,4 @@
-.PHONY: install dev test lint format up down logs psql db-reset migrate migrate-down seed
+.PHONY: install dev test lint format up down logs psql db-reset migrate migrate-down seed load-gtfs
 
 # Comandos simples, sem sintaxe de shell, para funcionar no PowerShell e no Git Bash.
 
@@ -53,3 +53,9 @@ migrate-down:
 # Rode depois do make migrate.
 seed:
 	uv run --locked python -m onibus.db.seeds
+
+# Carrega um GTFS da SPTrans como uma versão nova (T8): make load-gtfs GTFS=caminho.zip
+# O mesmo arquivo duas vezes não faz nada; arquivos diferentes viram versões diferentes.
+load-gtfs:
+	$(if $(GTFS),,$(error informe o arquivo: make load-gtfs GTFS=caminho.zip))
+	uv run --locked python -m onibus.coleta.gtfs "$(GTFS)"

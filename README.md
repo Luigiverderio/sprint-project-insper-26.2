@@ -110,6 +110,20 @@ indisponível ou o login ainda não estiver configurado, o endpoint retorna HTTP
 
 Os erros da API usam o formato `{"error": {"code": "...", "message": "..."}}`.
 
+## Carregar o GTFS
+
+Com o banco migrado (`make up` e `make migrate`), carregue o GTFS da SPTrans:
+
+```sh
+make load-gtfs GTFS=caminho/do/gtfs.zip
+```
+
+- Cada `.zip` vira uma versão em `referencia.gtfs_versoes`, com o hash do arquivo, e as linhas de todas as tabelas `gtfs_*` levam o id da versão. Versões diferentes convivem. O mesmo arquivo duas vezes não faz nada.
+- O nome da versão é `AAAAMMDD` da captura (`-2`, `-3`... se repetir no mesmo dia). Para escolher: `--name`; para informar quando o arquivo foi capturado: `--captured-at` (ISO 8601). Esses dois só funcionam rodando direto: `uv run --locked python -m onibus.coleta.gtfs ARQUIVO.zip --name feed-novembro`.
+- O horário do `stop_times.txt` é relativo ao início da viagem, com uma base qualquer por viagem. A carga guarda só o deslocamento até a primeira parada, em segundos (ADR-001, P6). O GTFS inteiro carrega em cerca de 13 s.
+- A carga é uma transação só: se algo falhar, nada fica gravado. O fuso do `agency.txt` precisa ser `America/Sao_Paulo`.
+- Roda como o dono do banco, com os dados do `.env`, como as migrações. No EC2, o ideal é rodar como `coletor_app` (T14).
+
 ## Coletar da Olho Vivo
 
 Coloque o token da API no .env (APP_OLHO_VIVO_TOKEN) e rode:
