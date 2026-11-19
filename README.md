@@ -61,13 +61,9 @@ make db-reset      # APAGA os dados e recria o banco do zero, com todas as migra
 - Toda mudança no esquema é uma migração nova. Depois de atualizar a branch, rode make migrate. Convenções e checklist de revisão: db/migrations/README.md.
 - Banco local criado antes do T6 (com o esquema aplicado na primeira subida): rode make db-reset uma vez. Ele apaga os dados, que por enquanto são só de teste, e recria o banco pelas migrações.
 - O pg_partman cria as partições dos meses seguintes sozinho, a cada hora, dentro do próprio banco. Confira com make psql e SELECT * FROM operacao.saude_particoes (ok deve ser true).
-<<<<<<< HEAD
-- O banco cria os papéis de grupo `onibus_coletor`, `onibus_worker` e `onibus_leitura`. Para conectar a API, configure um login próprio para ela.
-=======
-- Os papéis onibus_coletor, onibus_worker e onibus_leitura existem sem login. Os usuários de cada serviço (api_app etc.) ainda não são criados: a API e o worker não usam o banco por enquanto, e o usuário postgres é só para desenvolvimento.
+- O banco cria os papéis de grupo `onibus_coletor`, `onibus_worker` e `onibus_leitura`, sem login. Cada serviço conecta com um login próprio (veja Executar a API e Coletar da Olho Vivo); o usuário postgres é só para as migrações.
 - O make seed aplica os .sql de db/seeds/ em ordem, cada um numa transação. Por enquanto a pasta não tem seeds; as convenções estão em db/seeds/README.md.
 - A API e o worker voltam sozinhos se o processo cair. O worker não tem porta: o healthcheck confere um arquivo que ele atualiza a cada 10 s, e o make up só termina com os três saudáveis.
->>>>>>> chore/t4-pendencias-revisao
 - O código entra na imagem, sem bind mount. Depois de mudar o código, rode make up de novo, que reconstrói só o que mudou. Para iterar rápido na API, use make dev fora do Docker.
 - O front tem o próprio Docker no repositório dele e chama a API em http://localhost:8000.
 
