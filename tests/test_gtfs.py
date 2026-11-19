@@ -401,6 +401,19 @@ async def test_default_names_do_not_collide_on_the_same_day(
     assert (first.name, second.name) == ("20261119", "20261119-2")
 
 
+async def test_default_name_uses_the_sao_paulo_date(
+    conn: asyncpg.Connection, tmp_path: Path
+) -> None:
+    # 22h de 19/11 em São Paulo já é 20/11 em UTC.
+    late_evening = datetime(2026, 11, 20, 1, 0, tzinfo=UTC)
+
+    result = await load_gtfs(
+        conn, make_gtfs(tmp_path / "gtfs.zip"), captured_at=late_evening
+    )
+
+    assert result.name == "20261119"
+
+
 async def test_same_file_twice_is_rejected_and_changes_nothing(
     conn: asyncpg.Connection, tmp_path: Path
 ) -> None:

@@ -26,6 +26,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import asyncpg
 
@@ -365,7 +366,11 @@ def _read_stop_times(
 async def _free_name(
     conn: asyncpg.Connection, name: str | None, captured_at: datetime
 ) -> str:
-    """O nome dado, se livre, ou ``AAAAMMDD`` (com ``-2``, ``-3``... se repetir)."""
+    """O nome dado, se livre, ou ``AAAAMMDD`` (com ``-2``, ``-3``... se repetir).
+
+    A data é a da captura em São Paulo: em UTC, uma captura depois das 21h
+    levaria o nome do dia seguinte.
+    """
     if name is not None:
         taken = await conn.fetchval(
             "SELECT 1 FROM referencia.gtfs_versoes WHERE nome = $1", name
@@ -374,7 +379,7 @@ async def _free_name(
             raise GtfsError(f"já existe uma versão do GTFS chamada {name}")
         return name
 
-    base = captured_at.astimezone(UTC).strftime("%Y%m%d")
+    base = captured_at.astimezone(ZoneInfo(TIMEZONE)).strftime("%Y%m%d")
     rows = await conn.fetch(
         "SELECT nome FROM referencia.gtfs_versoes WHERE nome = $1 OR nome LIKE $2",
         base,
