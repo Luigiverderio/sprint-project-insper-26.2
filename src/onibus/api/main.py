@@ -8,8 +8,10 @@ from fastapi import APIRouter, FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException
+from starlette.middleware.errors import ServerErrorMiddleware
 
 from onibus.api.errors import (
+    ErrorResponse,
     handle_http_error,
     handle_unexpected_error,
     handle_validation_error,
@@ -19,7 +21,10 @@ from onibus.config import Settings
 from onibus.db.connection import create_read_engine
 
 logger = logging.getLogger(__name__)
-v1_router = APIRouter(prefix="/v1")
+v1_router = APIRouter(
+    prefix="/v1",
+    responses={422: {"model": ErrorResponse, "description": "Invalid request"}},
+)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -49,7 +54,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(v1_router)
     app.add_exception_handler(HTTPException, handle_http_error)
     app.add_exception_handler(RequestValidationError, handle_validation_error)
-    app.add_exception_handler(Exception, handle_unexpected_error)
+    # CORS needs to wrap the error handler so it also adds headers to HTTP 500.
+    app.add_middleware(ServerErrorMiddleware, handler=handle_unexpected_error)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

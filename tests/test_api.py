@@ -106,16 +106,18 @@ def test_cors_only_allows_the_configured_origin(
     ],
 )
 def test_errors_use_the_same_format(path: str, status: int, code: str) -> None:
-    app: FastAPI = create_app()
+    origin = "https://frontend.example"
+    app: FastAPI = create_app(Settings(cors_origins=[origin]))
 
     @app.get("/test")
     async def sample(value: int) -> None:
         raise RuntimeError("private detail")
 
     with TestClient(app, raise_server_exceptions=False) as client:
-        response = client.get(path)
+        response = client.get(path, headers={"Origin": origin})
 
     assert response.status_code == status
+    assert response.headers.get("Access-Control-Allow-Origin") == origin
     assert set(response.json()) == {"error"}
     assert set(response.json()["error"]) == {"code", "message"}
     assert response.json()["error"]["code"] == code
@@ -126,9 +128,19 @@ def test_public_routes_are_mounted_under_v1(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(v1_router, "routes", [])
 
     @v1_router.get("/sample")
-    async def sample() -> dict[str, bool]:
-        return {"ok": True}
+    async def sample(value: int) -> dict[str, int]:
+        return {"value": value}
 
     with TestClient(create_app()) as client:
-        assert client.get("/v1/sample").json() == {"ok": True}
+        assert client.get("/v1/sample?value=1").json() == {"value": 1}
         assert client.get("/sample").status_code == 404
+        validation_error = client.get("/v1/sample?value=invalid")
+        openapi = client.get("/openapi.json").json()
+
+    assert validation_error.status_code == 422
+    assert validation_error.json() == {
+        "error": {"code": "validation_error", "message": "Invalid request."}
+    }
+    response = openapi["paths"]["/v1/sample"]["get"]["responses"]["422"]
+    schema = response["content"]["application/json"]["schema"]
+    assert schema["$ref"] == "#/components/schemas/ErrorResponse"
