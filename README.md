@@ -41,14 +41,22 @@ Mantenha tokens e senhas em .env. Esse arquivo fica fora do Git.
 
 ## Ambiente com Docker
 
+Antes da primeira vez, copie .env.example para .env e troque POSTGRES_PASSWORD por uma senha sua.
+Sem ela, o Docker Compose não sobe.
+
 ```sh
-make up    # constrói e sobe a API e o worker; espera ficarem saudáveis
-make down  # para tudo
-make logs  # acompanha os logs
+make up        # constrói e sobe banco, API e worker; espera ficarem saudáveis
+make down      # para tudo e mantém os dados do banco
+make logs      # acompanha os logs
+make psql      # abre o psql no banco do Docker
+make db-reset  # APAGA os dados e recria o banco do zero, com o esquema atual
 ```
 
-- API: http://127.0.0.1:8000/docs. Mude API_PORT no .env se a porta estiver ocupada.
-- O banco (PostgreSQL + PostGIS) ainda não está no compose. Ele entra quando o banco do time estiver definido.
+- API: http://127.0.0.1:8000/docs. Banco: 127.0.0.1:5432, usuário postgres, banco onibus e a senha do seu .env. Mude API_PORT e DB_PORT no .env se as portas estiverem ocupadas.
+- O banco é o PostgreSQL 16 com PostGIS 3 e pg_partman 5, em UTC (ADR-001, P8, e ADR-002). O esquema vem de docs/modelo_banco/esquema.sql e é aplicado só na primeira subida, com o volume vazio. Os dados ficam no volume onibus_dados_postgres.
+- Se o esquema mudar, os dados antigos não são migrados: rode make db-reset. A partir do T6, as mudanças passam por migração Alembic.
+- O pg_partman cria as partições dos meses seguintes sozinho, a cada hora, dentro do próprio banco. Confira com make psql e SELECT * FROM operacao.saude_particoes (ok deve ser true).
+- Os papéis onibus_coletor, onibus_worker e onibus_leitura existem sem login. Os usuários de cada serviço (api_app etc.) ainda não são criados: a API e o worker não usam o banco por enquanto, e o usuário postgres é só para desenvolvimento.
 - O código entra na imagem, sem bind mount. Depois de mudar o código, rode make up de novo, que reconstrói só o que mudou. Para iterar rápido na API, use make dev fora do Docker.
 - O front tem o próprio Docker no repositório dele e chama a API em http://localhost:8000.
 
@@ -93,13 +101,14 @@ Os hooks usam a versão do Ruff instalada pelo uv.lock.
 - src/onibus/coleta/ — clientes e rotinas de coleta.
 - src/onibus/processamento/ — processamento dos workers (python -m onibus.processamento).
 - src/onibus/config.py — configuração por pydantic-settings.
-- db/init/, db/migrations/, db/seeds/ — inicialização, migrações e dados de teste.
+- db/Dockerfile — imagem do banco local, com o esquema embutido. db/init/, db/migrations/, db/seeds/ — inicialização, migrações e dados de teste.
+- docs/modelo_banco/ — modelo do banco: esquema, testes e validação (veja o README dessa pasta).
 - Dockerfile, docker-compose.yml — imagem da API e do worker, e o ambiente local.
 - tests/ — testes automatizados.
 - docs/adr-001.md — decisões de arquitetura do time.
 - legado_r/ — espaço reservado para referências e gabaritos do parceiro.
 
-O schema do banco e as migrações Alembic entram nos cards T5 e T6.
+O esquema do banco vem do modelo do T5 (docs/modelo_banco), e as migrações Alembic entram no T6.
 As dependências de banco e testes de integração já estão declaradas conforme o T1.
 
 ## Fluxo do time
