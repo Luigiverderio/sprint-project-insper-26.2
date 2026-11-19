@@ -7,9 +7,8 @@ Banco da plataforma (PostgreSQL 16 + PostGIS + pg_partman) e referência para as
 | Arquivo | O que é |
 |---|---|
 | `esquema.sql` | O banco inteiro: extensões, schemas, tabelas, índices, partições, views e papéis. Roda numa transação. |
-| `criar_banco.sh` | Cria tudo do zero em Docker (imagem, container, manutenção das partições, esquema e, opcionalmente, testes) |
+| `criar_banco.sh` | Cria tudo do zero em Docker (imagem do `db/Dockerfile`, container, manutenção das partições, esquema e, opcionalmente, testes) |
 | `teste.sql` | 13 grupos de verificações: duplicidade, FK, só inserção, papéis, mapa ao vivo, lacunas, GTFS, fuso, IPP/ICV, UUID, partições e retenção |
-| `Dockerfile` | Postgres 16 + PostGIS 3 + pg_partman 5 |
 | `validacao/` | Carga das saídas do pipeline R e comparação dos indicadores (ver "Validação") |
 
 Testado em 2026-11-18 com Postgres 16.16, PostGIS 3.7.0 e pg_partman 5.5.0.
@@ -113,7 +112,7 @@ No sintético, o BRIN do mapa ao vivo é impreciso: cada faixa cobre ~3 h de dad
 
 ## O que mudou em relação ao plano
 
-1. **Imagem do banco (T4, T11).** A `postgis/postgis` não serve. As tags 16-* dela são Debian bullseye, e o repositório PGDG do bullseye saiu do ar (404), então não há como instalar o pg_partman nela. O `Dockerfile` parte de `postgres:16-bookworm` e instala PostGIS e pg_partman pelos pacotes PGDG.
+1. **Imagem do banco (T4, T11).** A `postgis/postgis` não serve. As tags 16-* dela são Debian bullseye, e o repositório PGDG do bullseye saiu do ar (404), então não há como instalar o pg_partman nela. O `db/Dockerfile` parte de `postgres:16-bookworm` e instala PostGIS e pg_partman pelos pacotes PGDG, com as versões fixadas.
 2. **O volume é maior que "dezenas de milhões".**
    - Nos dados de teste há 1.100 a 1.250 registros por veículo por dia, porque o GPS atualiza a cada ~45 s.
    - Com ~12 mil veículos ativos por dia, seriam ~14 milhões de linhas por dia e **~400 milhões por mês**. Os 12 mil veículos são estimativa, a confirmar no primeiro dia de coleta.

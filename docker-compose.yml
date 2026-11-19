@@ -7,6 +7,8 @@ name: onibus
 x-app: &app
   build: .
   image: onibus-backend:dev
+  # Volta sozinho se o processo cair. Não sobe junto com o Docker Desktop.
+  restart: on-failure
   env_file:
     - path: .env
       required: false
@@ -63,6 +65,13 @@ services:
   worker:
     <<: *app
     command: ["python", "-m", "onibus.processamento"]
+    healthcheck:
+      # Sem porta HTTP: o worker atualiza um arquivo a cada 10 s, e o teste falha
+      # se ele parar de atualizar (src/onibus/processamento/heartbeat.py).
+      test: ["CMD", "python", "-m", "onibus.processamento.heartbeat"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
 
 volumes:
   dados_postgres:

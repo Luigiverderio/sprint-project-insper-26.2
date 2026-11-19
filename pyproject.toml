@@ -54,6 +54,6 @@ files = ["src", "tests"]
 strict = true
 
 [[tool.mypy.overrides]]
-# O APScheduler 3.x não traz tipos nem py.typed.
-module = ["apscheduler.*"]
+# O APScheduler 3.x e o asyncpg não trazem tipos nem py.typed.
+module = ["apscheduler.*", "asyncpg.*"]
 ignore_missing_imports = true

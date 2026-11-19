@@ -48,6 +48,7 @@ Sem ela, o Docker Compose não sobe.
 make up            # constrói e sobe banco, API e worker; espera ficarem saudáveis
 make migrate       # cria ou atualiza o esquema do banco (rode depois do make up)
 make migrate-down  # desfaz a última migração
+make seed          # carrega os dados de teste de db/seeds/ (rode depois do make migrate)
 make down          # para tudo e mantém os dados do banco
 make logs          # acompanha os logs
 make psql          # abre o psql no banco do Docker
@@ -56,10 +57,17 @@ make db-reset      # APAGA os dados e recria o banco do zero, com todas as migra
 
 - API: http://127.0.0.1:8000/docs. Banco: 127.0.0.1:5432, usuário postgres, banco onibus e a senha do seu .env. Mude API_PORT e DB_PORT no .env se as portas estiverem ocupadas.
 - O banco é o PostgreSQL 16 com PostGIS 3 e pg_partman 5, em UTC (ADR-001, P8, e ADR-002). Ele sobe vazio: o esquema vem das migrações Alembic de db/migrations/, aplicadas pelo make migrate. Os dados ficam no volume onibus_dados_postgres.
+- As versões do banco ficam fixadas no db/Dockerfile: a imagem base pelo digest e os pacotes pela versão exata. Assim o build dá o mesmo banco em qualquer máquina. Para atualizar, siga os passos do próprio arquivo.
 - Toda mudança no esquema é uma migração nova. Depois de atualizar a branch, rode make migrate. Convenções e checklist de revisão: db/migrations/README.md.
 - Banco local criado antes do T6 (com o esquema aplicado na primeira subida): rode make db-reset uma vez. Ele apaga os dados, que por enquanto são só de teste, e recria o banco pelas migrações.
 - O pg_partman cria as partições dos meses seguintes sozinho, a cada hora, dentro do próprio banco. Confira com make psql e SELECT * FROM operacao.saude_particoes (ok deve ser true).
+<<<<<<< HEAD
 - O banco cria os papéis de grupo `onibus_coletor`, `onibus_worker` e `onibus_leitura`. Para conectar a API, configure um login próprio para ela.
+=======
+- Os papéis onibus_coletor, onibus_worker e onibus_leitura existem sem login. Os usuários de cada serviço (api_app etc.) ainda não são criados: a API e o worker não usam o banco por enquanto, e o usuário postgres é só para desenvolvimento.
+- O make seed aplica os .sql de db/seeds/ em ordem, cada um numa transação. Por enquanto a pasta não tem seeds; as convenções estão em db/seeds/README.md.
+- A API e o worker voltam sozinhos se o processo cair. O worker não tem porta: o healthcheck confere um arquivo que ele atualiza a cada 10 s, e o make up só termina com os três saudáveis.
+>>>>>>> chore/t4-pendencias-revisao
 - O código entra na imagem, sem bind mount. Depois de mudar o código, rode make up de novo, que reconstrói só o que mudou. Para iterar rápido na API, use make dev fora do Docker.
 - O front tem o próprio Docker no repositório dele e chama a API em http://localhost:8000.
 
@@ -148,7 +156,7 @@ Os hooks usam a versão do Ruff instalada pelo uv.lock.
 - src/onibus/coleta/ — clientes e rotinas de coleta.
 - src/onibus/processamento/ — processamento dos workers (python -m onibus.processamento).
 - src/onibus/config.py — configuração por pydantic-settings.
-- db/Dockerfile — imagem do banco local, sem esquema. db/migrations/ — migrações Alembic (alembic.ini na raiz). db/init/, db/seeds/ — inicialização e dados de teste.
+- db/Dockerfile — imagem do banco (local, testes e produção), sem esquema. db/migrations/ — migrações Alembic (alembic.ini na raiz). db/init/ — inicialização. db/seeds/ — dados de teste do make seed.
 - docs/modelo_banco/ — modelo do banco: esquema, testes e validação (veja o README dessa pasta).
 - Dockerfile, docker-compose.yml — imagem da API e do worker, e o ambiente local.
 - tests/ — testes automatizados.

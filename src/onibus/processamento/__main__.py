@@ -3,20 +3,27 @@
 import asyncio
 import logging
 import signal
+from pathlib import Path
 
 from onibus.config import Settings
+from onibus.processamento.heartbeat import HEARTBEAT_FILE, HEARTBEAT_INTERVAL_S, beat
 
 logger = logging.getLogger(__name__)
 
 
-async def run(stop: asyncio.Event, settings: Settings) -> None:
-    """Mantém o worker ativo até ``stop`` ser sinalizado.
+async def run(
+    stop: asyncio.Event,
+    settings: Settings,
+    heartbeat_file: Path = HEARTBEAT_FILE,
+    heartbeat_interval_s: float = HEARTBEAT_INTERVAL_S,
+) -> None:
+    """Mantém o worker ativo até ``stop``, atualizando o ``heartbeat_file``.
 
     As rotinas de processamento (map-matching, viagens e indicadores) entram
     nos cards seguintes, dentro deste laço.
     """
     logger.info("Worker started environment=%s", settings.environment)
-    await stop.wait()
+    await beat(heartbeat_file, stop, heartbeat_interval_s)
     logger.info("Worker stopped")
 
 
