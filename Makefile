@@ -1,4 +1,4 @@
-.PHONY: install dev test lint format up down logs psql db-reset
+.PHONY: install dev test lint format up down logs psql db-reset migrate migrate-down
 
 # Comandos simples, sem sintaxe de shell, para funcionar no PowerShell e no Git Bash.
 
@@ -34,7 +34,17 @@ logs:
 psql:
 	docker compose exec db sh -c 'psql -U postgres -d "$$POSTGRES_DB"'
 
-# APAGA os dados do banco e o recria do zero com o esquema atual.
+# APAGA os dados do banco e o recria do zero, com todas as migrações.
 db-reset:
 	docker compose down -v
 	docker compose up -d --build --wait
+	uv run --locked alembic upgrade head
+
+# Migrações (db/migrations/): conecta como o dono do banco, com os dados do .env.
+# Aplica as que faltam; num banco limpo, cria o esquema inteiro.
+migrate:
+	uv run --locked alembic upgrade head
+
+# Desfaz a última migração aplicada.
+migrate-down:
+	uv run --locked alembic downgrade -1

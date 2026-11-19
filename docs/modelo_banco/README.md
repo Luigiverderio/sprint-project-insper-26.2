@@ -2,6 +2,8 @@
 
 Banco da plataforma (PostgreSQL 16 + PostGIS + pg_partman) e referência para as migrações Alembic (T6). Segue as decisões do time (T3 a T13), com os ajustes da seção "O que mudou" abaixo.
 
+> **Desde o T6, o banco é criado pelas migrações Alembic** (`db/migrations/`, `make migrate`). As migrações 0001 a 0007 reproduzem este `esquema.sql`, e `tests/test_migrations.py` compara o `pg_dump` dos dois. O `esquema.sql` fica como registro do modelo validado: mudança nova vai só para migração nova.
+
 | Arquivo | O que é |
 |---|---|
 | `esquema.sql` | O banco inteiro: extensões, schemas, tabelas, índices, partições, views e papéis. Roda numa transação. |

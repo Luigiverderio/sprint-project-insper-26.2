@@ -1,21 +1,18 @@
 """Testes de integração do banco (card T5): extensões, schemas e papéis.
 
-Constroem a mesma imagem do ``make up`` (``db/Dockerfile`` com o contexto
-``docs/modelo_banco``, que aplica o ``esquema.sql`` na primeira subida) e
-sobem um PostgreSQL descartável com testcontainers. Sem Docker rodando, os
-testes são pulados.
+Sobem um PostgreSQL descartável com testcontainers, na mesma imagem do
+``make up`` (``db/Dockerfile``), e aplicam as migrações como o
+``make migrate``. Sem Docker rodando, os testes são pulados.
 """
 
-from collections.abc import Iterator
-from pathlib import Path
+from collections.abc import Callable, Iterator
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.core.container import ExecConfig
-from testcontainers.core.docker_client import DockerClient
-from testcontainers.core.image import DockerImage
 
-REPO = Path(__file__).resolve().parents[1]
 DB_NAME = "onibus"
 ADMIN = "postgres"
 COLETOR = "coletor_app"
@@ -60,33 +57,25 @@ def run_sql(db: PostgresContainer, role: str, sql: str) -> tuple[int | None, str
 
 
 @pytest.fixture(scope="module")
-def db() -> Iterator[PostgresContainer]:
-    """Banco do ``make up`` com os logins dos serviços e uma tabela ``teste``.
+def db(
+    db_image: str, alembic_config: Callable[[PostgresContainer, str], Config]
+) -> Iterator[PostgresContainer]:
+    """Banco migrado, com os logins dos serviços e uma tabela ``teste``.
 
     As tabelas ``teste`` são criadas pelo dono do banco, como uma migração
     faria, para conferir que as permissões padrão valem para tabelas futuras.
     A de ``bruto`` liga o trigger de só inserção, como as tabelas do modelo, e
     já tem uma linha, para o trigger de linha ter o que bloquear.
     """
-    try:
-        DockerClient().client.ping()
-    except Exception:
-        pytest.skip("Docker indisponível: os testes do banco precisam dele rodando")
-
-    image = DockerImage(
-        path=str(REPO / "docs" / "modelo_banco"),
-        dockerfile_path=str(REPO / "db" / "Dockerfile"),
-        tag="onibus-db:test",
-        clean_up=False,
-    ).build()
     container = PostgresContainer(
-        str(image),
+        db_image,
         username=ADMIN,
         password=PASSWORDS[ADMIN],
         dbname=DB_NAME,
         driver=None,
     )
     with container:
+        command.upgrade(alembic_config(container, DB_NAME), "head")
         setup = LOGINS + " ".join(
             f"CREATE TABLE {schema}.teste"
             " (id uuid DEFAULT gen_random_uuid() PRIMARY KEY, valor text);"

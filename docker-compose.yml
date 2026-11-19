@@ -12,13 +12,11 @@ x-app: &app
       required: false
 
 services:
-  # Postgres 16 + PostGIS + pg_partman, com o esquema de docs/modelo_banco aplicado
-  # na primeira subida. A manutenção das partições roda a cada hora, dentro do
+  # Postgres 16 + PostGIS + pg_partman, sem esquema: as tabelas vêm das migrações
+  # (`make migrate`). A manutenção das partições roda a cada hora, dentro do
   # próprio Postgres (pg_partman_bgw), que precisa do usuário postgres.
   db:
-    build:
-      context: ./docs/modelo_banco
-      dockerfile: ../../db/Dockerfile
+    build: ./db
     image: onibus-db:16
     command:
       - postgres
@@ -42,7 +40,7 @@ services:
       - dados_postgres:/var/lib/postgresql/data
     healthcheck:
       # -h 127.0.0.1: durante a criação o servidor temporário só aceita socket.
-      # Testar por TCP evita marcar "saudável" antes de o esquema terminar.
+      # Testar por TCP evita marcar "saudável" antes de a inicialização terminar.
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
