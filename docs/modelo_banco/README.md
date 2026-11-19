@@ -153,6 +153,9 @@ O que a revisão encontrou e corrigiu:
 | Coordenadas | aceitava qualquer número | `CHECK` de faixa válida (o coletor filtra e conta em `n_rejeitados`) |
 | Script | parava no meio se algo falhasse | uma transação só; mês inicial das partições é parâmetro |
 | Código da linha | (testei um regex) | o catálogo tem `209P-1`, `CPTM L07-0` e `METRÔ L1-0`: só barra vazio e espaço nas pontas |
+| Tipos numéricos | 15 colunas em `real` (float4); `3.1::double precision <= 3.1::real` dá falso e quebrava o `CHECK` com tolerância decimal | `double precision` em todas |
+| Saída realizada sem diferença | `diferenca_min` nula passava nos `CHECK` de status | `CHECK`: `realizada_no_horario`, `realizada_com_atraso` e `realizada_antecipadamente` exigem `diferenca_min` |
+| Horário do `stop_times.txt` | comentário dizia deslocamento a partir de zero | relativo ao início da viagem, com base qualquer por viagem; o carregador guarda o deslocamento até a primeira parada (ADR-001, P6) |
 
 ## Melhorias em relação às saídas do R
 

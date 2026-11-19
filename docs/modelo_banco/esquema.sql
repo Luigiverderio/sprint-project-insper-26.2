@@ -18,7 +18,8 @@
 --   * nomes em português, snake_case;
 --   * todo instante é timestamptz (guardado em UTC); hora local só na exibição;
 --   * dia de serviço começa às 03:00 de São Paulo;
---   * sentido: 0 = ida, 1 = volta (a Olho Vivo usa 1/2 em "sl": fica em sentido_api);
+--   * sentido: 0 = ida, 1 = volta (a Olho Vivo usa 1/2 em "sl": fica em sentido_api;
+--     a regra é sentido = sentido_api - 1, como no R: direction_id = sl - 1);
 --   * a mesma chave de linha (ex.: '701A-10') vale na Olho Vivo ("c"), no GTFS
 --     (route_id) e na API de itinerários ("codigo");
 --   * listas fechadas de valores: text + CHECK (mais fácil de migrar que ENUM);
@@ -269,8 +270,11 @@ CREATE TABLE referencia.gtfs_viagens (             -- trips.txt
 );
 CREATE INDEX gtfs_viagens_rota_idx ON referencia.gtfs_viagens (gtfs_versao_id, route_id);
 
--- stop_times.txt. No GTFS da SPTrans os horários são deslocamentos a partir do
--- início da viagem; em segundos (GTFS permite passar de 24:00:00).
+-- stop_times.txt. No GTFS da SPTrans o horário é relativo ao início da viagem, com
+-- uma base qualquer por viagem (478P-10-0 começa em 14:00:00): só as diferenças
+-- valem. Aqui fica o deslocamento até a primeira parada, em segundos (zero nela),
+-- normalizado na carga: arrival_time menos o arrival_time da primeira parada.
+-- Não é hora do relógio e não se converte para UTC (ADR-001, P6).
 CREATE TABLE referencia.gtfs_horarios_paradas (
   gtfs_versao_id  integer  NOT NULL,
   trip_id         text     NOT NULL,
@@ -455,11 +459,11 @@ CREATE TABLE operacao.viagens (
   fim_obs             timestamptz NOT NULL,
   partida_em          timestamptz,
   chegada_em          timestamptz,
-  duracao_min         real CHECK (duracao_min >= 0),
-  distancia_km        real CHECK (distancia_km >= 0),
-  vel_media_kmh       real CHECK (vel_media_kmh >= 0),
-  cobertura           real CHECK (cobertura BETWEEN 0 AND 1),        -- observation_coverage
-  frac_tracado        real CHECK (frac_tracado BETWEEN 0 AND 1),     -- frac_observada
+  duracao_min         double precision CHECK (duracao_min >= 0),
+  distancia_km        double precision CHECK (distancia_km >= 0),
+  vel_media_kmh       double precision CHECK (vel_media_kmh >= 0),
+  cobertura           double precision CHECK (cobertura BETWEEN 0 AND 1),        -- observation_coverage
+  frac_tracado        double precision CHECK (frac_tracado BETWEEN 0 AND 1),     -- frac_observada
   lacuna_max_s        integer CHECK (lacuna_max_s >= 0),
   status_trajetoria   text NOT NULL CHECK (status_trajetoria IN
                         ('viagem_confirmada', 'viagem_provavel', 'trajetoria_parcial', 'observacao_inconclusiva')),
@@ -498,9 +502,9 @@ CREATE TABLE operacao.lacunas_veiculo (
   data_servico      date    NOT NULL,
   inicio_em         timestamptz NOT NULL,
   fim_em            timestamptz,                    -- NULL = não voltou a transmitir
-  km_inicio         real,
-  km_fim            real,
-  viagens_cabiveis  real CHECK (viagens_cabiveis >= 0),
+  km_inicio         double precision,
+  km_fim            double precision,
+  viagens_cabiveis  double precision CHECK (viagens_cabiveis >= 0),
   tipo              text NOT NULL CHECK (tipo IN ('parou_de_transmitir', 'deslocou_sem_sinal',
                       'parado_sem_sinal', 'cabe_viagem_sem_sinal')),
   execucao_id       uuid NOT NULL REFERENCES operacao.execucoes (id),
@@ -579,9 +583,9 @@ CREATE TABLE indicadores.saidas_auditadas (
                         'fora_do_periodo_coletado', 'programacao_invalida')),
   nivel_confianca     text CHECK (nivel_confianca IN ('alta', 'media', 'baixa', 'muito_baixa')),
   cobertura_dados     text CHECK (cobertura_dados IN ('boa', 'parcial', 'insuficiente', 'lacuna_gps_veiculo')),
-  frac_min_dados      real CHECK (frac_min_dados BETWEEN 0 AND 1),
-  pct_tracado         real CHECK (pct_tracado BETWEEN 0 AND 100),
-  pct_cobertura       real CHECK (pct_cobertura BETWEEN 0 AND 100),
+  frac_min_dados      double precision CHECK (frac_min_dados BETWEEN 0 AND 1),
+  pct_tracado         double precision CHECK (pct_tracado BETWEEN 0 AND 100),
+  pct_cobertura       double precision CHECK (pct_cobertura BETWEEN 0 AND 100),
   evidencia           text,
   so_lacuna_aberta    boolean,
   diagnostico_frota   text CHECK (diagnostico_frota IN (
@@ -591,8 +595,8 @@ CREATE TABLE indicadores.saidas_auditadas (
                         'conclusao_compativel_com_lacuna_gps', 'lacuna_gps_curta_demais_para_concluir')),
   detalhe_frota       text,
   veiculos_possiveis  integer[] NOT NULL DEFAULT '{}',   -- era "21013,21035" em texto
-  tolerancia_min           real NOT NULL CHECK (tolerancia_min > 0),   -- IPP (a) e (b): 3 min
-  tolerancia_ampliada_min  real NOT NULL DEFAULT 4,                    -- IPP (c)
+  tolerancia_min           double precision NOT NULL CHECK (tolerancia_min > 0),   -- IPP (a) e (b): 3 min
+  tolerancia_ampliada_min  double precision NOT NULL DEFAULT 4,                    -- IPP (c)
   execucao_id         uuid  NOT NULL REFERENCES operacao.execucoes (id),
   FOREIGN KEY (saida_id, codigo_linha, data_servico)
     REFERENCES operacao.saidas_programadas (id, codigo_linha, data_servico) ON DELETE CASCADE,
@@ -601,6 +605,9 @@ CREATE TABLE indicadores.saidas_auditadas (
   CHECK (status <> 'realizada_no_horario'      OR abs(diferenca_min) <= tolerancia_min),
   CHECK (status <> 'realizada_com_atraso'      OR diferenca_min >  tolerancia_min),
   CHECK (status <> 'realizada_antecipadamente' OR diferenca_min < -tolerancia_min),
+  -- uma saída realizada sempre tem a diferença calculada: sem isto, NULL passaria nos CHECKs acima
+  CHECK (status NOT IN ('realizada_no_horario', 'realizada_com_atraso', 'realizada_antecipadamente')
+         OR diferenca_min IS NOT NULL),
   CHECK (status NOT IN ('possivelmente_nao_realizada', 'fora_do_periodo_coletado', 'programacao_invalida')
          OR viagem_id IS NULL)
 );
@@ -615,8 +622,8 @@ CREATE TABLE indicadores.partidas_descartadas (
   saida_id     uuid    NOT NULL REFERENCES indicadores.saidas_auditadas (saida_id) ON DELETE CASCADE,
   prefixo      integer NOT NULL,
   partida_em   timestamptz NOT NULL,
-  frac_tracado real    NOT NULL CHECK (frac_tracado BETWEEN 0 AND 1),
-  km           real    NOT NULL CHECK (km >= 0),
+  frac_tracado double precision    NOT NULL CHECK (frac_tracado BETWEEN 0 AND 1),
+  km           double precision    NOT NULL CHECK (km >= 0),
   PRIMARY KEY (saida_id, prefixo, partida_em)
 );
 

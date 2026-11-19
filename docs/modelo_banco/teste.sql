@@ -238,6 +238,17 @@ DO $$ DECLARE sid uuid; BEGIN
         SELECT sid, '701A-10', '2026-09-16', 'inconclusiva', 3, id FROM operacao.execucoes;
         RAISE EXCEPTION 'aceitou dia diferente do da saída';
   EXCEPTION WHEN foreign_key_violation THEN RAISE NOTICE 'ok: FK composta barrou dia errado'; END;
+  -- saída realizada sem diferença calculada é barrada (NULL não passa)
+  BEGIN INSERT INTO indicadores.saidas_auditadas (saida_id, codigo_linha, data_servico, status, tolerancia_min, execucao_id)
+        SELECT sid, '701A-10', '2026-09-15', 'realizada_com_atraso', 3, id FROM operacao.execucoes;
+        RAISE EXCEPTION 'aceitou realizada sem diferenca_min';
+  EXCEPTION WHEN check_violation THEN RAISE NOTICE 'ok: realizada sem diferenca_min barrada'; END;
+  -- tolerância com decimal: 3,1 de diferença com tolerância 3,1 é no horário (em float4 contra float8 dava falso)
+  BEGIN INSERT INTO indicadores.saidas_auditadas (saida_id, codigo_linha, data_servico, diferenca_min, status, tolerancia_min, execucao_id)
+        SELECT sid, '701A-10', '2026-09-15', 3.1, 'realizada_no_horario', 3.1, id FROM operacao.execucoes;
+        RAISE EXCEPTION 'desfaz_teste';
+  EXCEPTION WHEN check_violation THEN RAISE EXCEPTION 'tolerância 3,1 rejeitada: tipos float4 e float8 misturados';
+            WHEN raise_exception THEN RAISE NOTICE 'ok: tolerância 3,1 aceita'; END;
   -- 3,00000001 min é atraso (como no R, em double); em real viraria 3,0
   INSERT INTO indicadores.saidas_auditadas (saida_id, codigo_linha, data_servico, diferenca_min, status, tolerancia_min, execucao_id)
   SELECT sid, '701A-10', '2026-09-15', 3.00000001, 'realizada_com_atraso', 3, id FROM operacao.execucoes;
