@@ -8,6 +8,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from onibus.coleta.__main__ import collect_forever
 from onibus.coleta.coletor import CycleResult, CycleStatus
+from onibus.coleta.etapas import Stage
 from onibus.coleta.scheduler import CYCLE_INTERVAL, CollectionScheduler
 from onibus.config import Settings
 
@@ -15,10 +16,11 @@ FAST = timedelta(milliseconds=10)
 NOW = datetime(2026, 11, 18, 12, 0, tzinfo=UTC)
 RESULT = CycleResult(
     started_at=NOW,
-    finished_at=NOW,
+    finished_at=NOW + timedelta(seconds=2),
     status=CycleStatus.SUCCESS,
     attempts=1,
     record_count=2,
+    stage_durations={Stage.LOGIN: 0.21, Stage.REQUEST: 1.8},
 )
 
 
@@ -81,6 +83,21 @@ async def test_runs_a_cycle_right_away_and_repeats() -> None:
 
     assert handled[0] is RESULT
     assert runner.calls >= 3
+
+
+async def test_logs_cycle_duration_and_stages(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    scheduler = CollectionScheduler(FakeRunner(), interval=FAST)
+    stop = asyncio.Event()
+
+    with caplog.at_level(logging.INFO):
+        task = asyncio.create_task(scheduler.run(stop))
+        await _until(lambda: "Collection cycle success" in caplog.text)
+        stop.set()
+        await asyncio.wait_for(task, 2)
+
+    assert "in 2.00 s (login=0.21s request=1.80s)" in caplog.text
 
 
 async def test_never_overlaps_cycles_and_logs_the_skipped_tick(

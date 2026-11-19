@@ -12,6 +12,7 @@ import signal
 import sys
 
 from onibus.coleta.coletor import CycleStatus, PositionCollector
+from onibus.coleta.etapas import format_durations
 from onibus.coleta.olho_vivo import OlhoVivoClient
 from onibus.coleta.scheduler import CollectionScheduler
 from onibus.config import Settings
@@ -34,6 +35,7 @@ async def collect_once(settings: Settings) -> int:
         f"OK em {result.attempts} tentativa(s): {len(result.snapshot.lines)} linhas, "
         f"{result.record_count} veículos (hr={result.snapshot.reference_time})"
     )
+    print(f"Etapas: {format_durations(result.stage_durations)}")
     return 0
 
 

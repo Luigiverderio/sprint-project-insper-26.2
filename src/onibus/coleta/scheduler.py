@@ -5,8 +5,9 @@ rodarem ao mesmo tempo. O coletor limita cada ciclo a 25 s, abaixo do intervalo;
 se mesmo assim um ciclo demorar mais que o intervalo, o disparo seguinte é
 pulado e fica registrado no log, em vez de acumular ciclos.
 
-Cada ciclo concluído vai para ``on_cycle``, o ponto em que o card T8 grava o
-resultado na tabela de ciclos de coleta.
+Cada ciclo concluído vai para o log, com a duração de cada etapa, e para
+``on_cycle``, o ponto em que o ciclo vai ser gravado na tabela de ciclos de
+coleta criada no card T8.
 """
 
 import asyncio
@@ -24,6 +25,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from onibus.coleta.coletor import CycleResult
+from onibus.coleta.etapas import format_durations
 
 logger = logging.getLogger(__name__)
 
@@ -93,10 +95,12 @@ class CollectionScheduler:
         try:
             result = await self._collector.run_cycle()
             logger.info(
-                "Collection cycle %s: %d attempt(s), %d record(s)",
+                "Collection cycle %s: %d attempt(s), %d record(s) in %.2f s (%s)",
                 result.status.value,
                 result.attempts,
                 result.record_count,
+                (result.finished_at - result.started_at).total_seconds(),
+                format_durations(result.stage_durations),
             )
             if self._on_cycle is not None:
                 await self._on_cycle(result)

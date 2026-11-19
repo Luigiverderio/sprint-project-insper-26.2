@@ -84,6 +84,7 @@ Cada ciclo faz até 5 tentativas, com espera crescente, e autentica de novo se a
 O ciclo tem prazo de 25 s: se a API travar, ele termina como falha antes do próximo disparo.
 Se mesmo assim um ciclo passar de 30 s, o disparo seguinte é pulado e fica no log, sem ciclos em paralelo.
 Depois de 10 minutos seguidos de falha, o log registra um alerta CRITICAL.
+Cada ciclo vai para o log com a duração total e a de cada etapa (`login`, `request`, `parse`, `retry_wait`).
 Por enquanto o ciclo não grava no banco: o registro na tabela de ciclos é o T8.
 
 ## Qualidade

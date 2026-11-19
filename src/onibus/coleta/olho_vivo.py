@@ -5,7 +5,8 @@ A API autentica por cookie: ``POST /Login/Autenticar?token=...`` devolve
 sozinho. Quando a sessão expira, as consultas respondem 401.
 
 Cada método faz uma única tentativa. O retry fica no coletor
-(:mod:`onibus.coleta.coletor`), que conta as tentativas por ciclo.
+(:mod:`onibus.coleta.coletor`), que conta as tentativas por ciclo. Com um
+:class:`StageTimer`, os métodos medem login, chamada e leitura da resposta.
 """
 
 import logging
@@ -16,6 +17,8 @@ from typing import Self
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
+
+from onibus.coleta.etapas import Stage, StageTimer
 
 DEFAULT_BASE_URL = "https://api.olhovivo.sptrans.com.br/v2.1"
 DEFAULT_TIMEOUT = httpx.Timeout(10.0)
@@ -137,11 +140,13 @@ class OlhoVivoClient:
         """Se há uma sessão aberta (até a API responder 401)."""
         return self._authenticated
 
-    async def authenticate(self) -> None:
+    async def authenticate(self, timer: StageTimer | None = None) -> None:
         """Abre a sessão com o token. Recusa do token gera ``InvalidTokenError``."""
-        response = await self._http.post(
-            f"{self._base_url}/Login/Autenticar", params={"token": self._token}
-        )
+        timer = timer or StageTimer()
+        with timer.measure(Stage.LOGIN):
+            response = await self._http.post(
+                f"{self._base_url}/Login/Autenticar", params={"token": self._token}
+            )
         _raise_for_server_error(response)
         try:
             accepted = response.json() is True
@@ -152,18 +157,21 @@ class OlhoVivoClient:
             raise InvalidTokenError("Olho Vivo rejected the token")
         self._authenticated = True
 
-    async def get_positions(self) -> PositionsSnapshot:
+    async def get_positions(self, timer: StageTimer | None = None) -> PositionsSnapshot:
         """Consulta ``Posicao``: posição de todos os veículos em operação."""
-        response = await self._get("/Posicao")
-        try:
-            return PositionsSnapshot.model_validate(response.json())
-        except ValueError as exc:
-            raise UnavailableError("Invalid response from /Posicao") from exc
+        timer = timer or StageTimer()
+        response = await self._get("/Posicao", timer)
+        with timer.measure(Stage.PARSE):
+            try:
+                return PositionsSnapshot.model_validate(response.json())
+            except ValueError as exc:
+                raise UnavailableError("Invalid response from /Posicao") from exc
 
-    async def _get(self, path: str) -> httpx.Response:
+    async def _get(self, path: str, timer: StageTimer) -> httpx.Response:
         if not self._authenticated:
-            await self.authenticate()
-        response = await self._http.get(f"{self._base_url}{path}")
+            await self.authenticate(timer)
+        with timer.measure(Stage.REQUEST):
+            response = await self._http.get(f"{self._base_url}{path}")
         if response.status_code == httpx.codes.UNAUTHORIZED:
             self._authenticated = False
             raise SessionExpiredError(f"Session expired on {path}")

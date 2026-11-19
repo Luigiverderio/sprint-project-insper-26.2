@@ -11,6 +11,7 @@ from tenacity import wait_fixed, wait_none
 
 from onibus.coleta.__main__ import collect_once
 from onibus.coleta.coletor import CycleStatus, PositionCollector
+from onibus.coleta.etapas import Stage, StageTimer, format_durations
 from onibus.coleta.olho_vivo import (
     InvalidTokenError,
     OlhoVivoClient,
@@ -221,6 +222,8 @@ async def test_cycle_stops_at_deadline_when_api_hangs() -> None:
         assert "CycleDeadlineError" in result.failure_cause
         assert "last error: UnavailableError" in result.failure_cause
         assert elapsed < 1
+        # A chamada cortada conta até o corte: é ali que o prazo foi gasto.
+        assert result.stage_durations[Stage.REQUEST] >= 0.15
 
         # A requisição cancelada não estraga o cliente: o próximo ciclo funciona.
         assert (await collector.run_cycle()).status is CycleStatus.SUCCESS
@@ -239,6 +242,49 @@ async def test_cycle_skips_retry_whose_wait_passes_deadline() -> None:
     assert api.position_calls == 1
     assert result.failure_cause is not None
     assert "UnavailableError" in result.failure_cause
+
+
+async def test_cycle_records_duration_of_each_stage() -> None:
+    api = FakeOlhoVivo([503])
+    async with api.client() as client:
+        collector = PositionCollector(client, wait=wait_fixed(0.05))
+        result = await collector.run_cycle()
+
+    assert result.status is CycleStatus.SUCCESS
+    durations = result.stage_durations
+    assert set(durations) == {
+        Stage.LOGIN,
+        Stage.REQUEST,
+        Stage.PARSE,
+        Stage.RETRY_WAIT,
+    }
+    assert all(seconds >= 0 for seconds in durations.values())
+    assert durations[Stage.RETRY_WAIT] >= 0.05
+
+
+async def test_failed_cycle_keeps_stage_durations() -> None:
+    api = FakeOlhoVivo([500] * 10)
+    async with api.client() as client:
+        result = await _collector(client).run_cycle()
+
+    assert result.status is CycleStatus.FAILURE
+    assert {Stage.LOGIN, Stage.REQUEST} <= set(result.stage_durations)
+    # Erro 500 não chega a ler o corpo.
+    assert Stage.PARSE not in result.stage_durations
+
+
+def test_stage_timer_sums_attempts_and_counts_failed_blocks() -> None:
+    ticks = iter([0.0, 1.0, 5.0, 7.5])
+    timer = StageTimer(clock=lambda: next(ticks))
+
+    with timer.measure(Stage.REQUEST):
+        pass
+    with pytest.raises(RuntimeError), timer.measure(Stage.REQUEST):
+        raise RuntimeError("falhou no meio")
+
+    assert timer.durations() == {Stage.REQUEST: 3.5}
+    assert format_durations(timer.durations()) == "request=3.50s"
+    assert format_durations({}) == "no stages"
 
 
 async def test_cycle_does_not_retry_invalid_token() -> None:

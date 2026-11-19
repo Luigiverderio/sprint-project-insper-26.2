@@ -10,15 +10,15 @@ cancelada e o ciclo termina como falha; nenhuma tentativa nova começa se a
 espera antes dela já passaria do prazo. Assim um ciclo nunca invade o
 seguinte, e a lacuna fica registrada como falha em vez de virar um ciclo pulado.
 
-O resultado de cada ciclo (:class:`CycleResult`) é devolvido em memória.
-Gravar o ciclo no banco fica para o card T8 (tabela de ciclos de coleta) e o
-agendamento a cada 30 s, para a H1.
+O resultado de cada ciclo (:class:`CycleResult`) é devolvido em memória, com
+a duração de cada etapa (:mod:`onibus.coleta.etapas`). Gravar o ciclo na
+tabela de ciclos de coleta, criada no card T8, ainda falta neste card (T12).
 """
 
 import asyncio
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
@@ -34,6 +34,7 @@ from tenacity import (
 )
 from tenacity.wait import wait_base
 
+from onibus.coleta.etapas import Stage, StageTimer
 from onibus.coleta.olho_vivo import (
     OlhoVivoClient,
     OlhoVivoError,
@@ -73,6 +74,7 @@ class CycleResult:
     record_count: int
     failure_cause: str | None = None
     snapshot: PositionsSnapshot | None = None
+    stage_durations: dict[Stage, float] = field(default_factory=dict)
 
 
 def _utc_now() -> datetime:
@@ -110,8 +112,13 @@ class PositionCollector:
         """Executa um ciclo de coleta. Nunca levanta exceção da API."""
         started_at = self._clock()
         deadline = self._deadline.total_seconds()
+        timer = StageTimer()
         attempts = 0
         last_error: BaseException | None = None
+
+        async def sleep(seconds: float) -> None:
+            with timer.measure(Stage.RETRY_WAIT):
+                await asyncio.sleep(seconds)
 
         def log_retry(retry_state: RetryCallState) -> None:
             nonlocal last_error
@@ -125,28 +132,33 @@ class PositionCollector:
                         | stop_before_delay(deadline)
                     ),
                     wait=self._wait,
+                    sleep=sleep,
                     retry=retry_if_exception_type(RETRYABLE_ERRORS),
                     before_sleep=log_retry,
                 ):
                     with attempt:
                         attempts = attempt.retry_state.attempt_number
-                        snapshot = await self._client.get_positions()
+                        snapshot = await self._client.get_positions(timer)
         except RetryError as exc:
             cause = exc.last_attempt.exception()
-            return self._failure(started_at, attempts, cause)
+            return self._failure(started_at, attempts, timer, cause)
         except OlhoVivoError as exc:
-            return self._failure(started_at, attempts, exc)
+            return self._failure(started_at, attempts, timer, exc)
         except TimeoutError:
             timeout = CycleDeadlineError(
                 f"cycle exceeded {deadline:g} s during attempt {attempts}"
             )
             timeout.__cause__ = last_error
-            return self._failure(started_at, attempts, timeout)
+            return self._failure(started_at, attempts, timer, timeout)
 
-        return self._success(started_at, attempts, snapshot)
+        return self._success(started_at, attempts, timer, snapshot)
 
     def _success(
-        self, started_at: datetime, attempts: int, snapshot: PositionsSnapshot
+        self,
+        started_at: datetime,
+        attempts: int,
+        timer: StageTimer,
+        snapshot: PositionsSnapshot,
     ) -> CycleResult:
         if self._failing_since is not None:
             logger.info(
@@ -162,10 +174,15 @@ class PositionCollector:
             attempts=attempts,
             record_count=snapshot.vehicle_count,
             snapshot=snapshot,
+            stage_durations=timer.durations(),
         )
 
     def _failure(
-        self, started_at: datetime, attempts: int, cause: BaseException | None
+        self,
+        started_at: datetime,
+        attempts: int,
+        timer: StageTimer,
+        cause: BaseException | None,
     ) -> CycleResult:
         description = _describe(cause)
         logger.error(
@@ -192,6 +209,7 @@ class PositionCollector:
             attempts=attempts,
             record_count=0,
             failure_cause=description,
+            stage_durations=timer.durations(),
         )
 
     @staticmethod
