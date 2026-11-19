@@ -15,6 +15,7 @@ dependencies = [
     "geoalchemy2",
     "httpx",
     "tenacity",
+    "apscheduler>=3.11.3",
 ]
 
 [dependency-groups]
@@ -51,3 +52,8 @@ select = ["E", "F", "I", "UP", "B"]
 python_version = "3.12"
 files = ["src", "tests"]
 strict = true
+
+[[tool.mypy.overrides]]
+# O APScheduler 3.x não traz tipos nem py.typed.
+module = ["apscheduler.*"]
+ignore_missing_imports = true
