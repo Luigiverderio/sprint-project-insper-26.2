@@ -1,9 +1,9 @@
 """Agendamento do ciclo de coleta: um ciclo a cada 30 s.
 
 O APScheduler dispara o ciclo num intervalo fixo, sem deixar dois ciclos
-rodarem ao mesmo tempo. Se um ciclo demorar mais que o intervalo (5 tentativas
-com timeout de 10 s podem passar de 60 s), o disparo seguinte é pulado e fica
-registrado no log, em vez de acumular ciclos.
+rodarem ao mesmo tempo. O coletor limita cada ciclo a 25 s, abaixo do intervalo;
+se mesmo assim um ciclo demorar mais que o intervalo, o disparo seguinte é
+pulado e fica registrado no log, em vez de acumular ciclos.
 
 Cada ciclo concluído vai para ``on_cycle``, o ponto em que o card T8 grava o
 resultado na tabela de ciclos de coleta.

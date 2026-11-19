@@ -4,11 +4,18 @@ Um ciclo faz até ``max_attempts`` tentativas de ``Posicao`` com espera
 crescente entre elas. Sessão expirada conta como tentativa: na seguinte, o
 cliente autentica de novo. Token recusado encerra o ciclo na hora.
 
+O ciclo inteiro tem um prazo (``deadline``, 25 s por padrão), menor que o
+intervalo de 30 s do agendador. Ao estourar, a requisição em andamento é
+cancelada e o ciclo termina como falha; nenhuma tentativa nova começa se a
+espera antes dela já passaria do prazo. Assim um ciclo nunca invade o
+seguinte, e a lacuna fica registrada como falha em vez de virar um ciclo pulado.
+
 O resultado de cada ciclo (:class:`CycleResult`) é devolvido em memória.
 Gravar o ciclo no banco fica para o card T8 (tabela de ciclos de coleta) e o
 agendamento a cada 30 s, para a H1.
 """
 
+import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -22,6 +29,7 @@ from tenacity import (
     RetryError,
     retry_if_exception_type,
     stop_after_attempt,
+    stop_before_delay,
     wait_exponential,
 )
 from tenacity.wait import wait_base
@@ -38,8 +46,11 @@ logger = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 5
 FAILURE_ALERT_AFTER = timedelta(minutes=10)
-# Esperas de 1, 2, 4 e 8 s: as 5 tentativas cabem num ciclo de 30 s.
+# Esperas de 1, 2, 4 e 8 s entre as tentativas.
 DEFAULT_WAIT = wait_exponential(multiplier=1, min=1, max=8)
+# Com timeout de 10 s por requisição, 5 tentativas mais as esperas podem passar
+# de 65 s. O prazo corta o ciclo antes do próximo disparo (a cada 30 s).
+CYCLE_DEADLINE = timedelta(seconds=25)
 
 RETRYABLE_ERRORS = (httpx.TransportError, SessionExpiredError, UnavailableError)
 
@@ -78,11 +89,13 @@ class PositionCollector:
         max_attempts: int = MAX_ATTEMPTS,
         wait: wait_base = DEFAULT_WAIT,
         alert_after: timedelta = FAILURE_ALERT_AFTER,
+        deadline: timedelta = CYCLE_DEADLINE,
         clock: Callable[[], datetime] = _utc_now,
     ) -> None:
         self._client = client
         self._max_attempts = max_attempts
         self._wait = wait
+        self._deadline = deadline
         self._alert_after = alert_after
         self._clock = clock
         self._failing_since: datetime | None = None
@@ -96,22 +109,39 @@ class PositionCollector:
     async def run_cycle(self) -> CycleResult:
         """Executa um ciclo de coleta. Nunca levanta exceção da API."""
         started_at = self._clock()
+        deadline = self._deadline.total_seconds()
         attempts = 0
+        last_error: BaseException | None = None
+
+        def log_retry(retry_state: RetryCallState) -> None:
+            nonlocal last_error
+            last_error = self._log_retry(retry_state)
+
         try:
-            async for attempt in AsyncRetrying(
-                stop=stop_after_attempt(self._max_attempts),
-                wait=self._wait,
-                retry=retry_if_exception_type(RETRYABLE_ERRORS),
-                before_sleep=self._log_retry,
-            ):
-                with attempt:
-                    attempts = attempt.retry_state.attempt_number
-                    snapshot = await self._client.get_positions()
+            async with asyncio.timeout(deadline):
+                async for attempt in AsyncRetrying(
+                    stop=(
+                        stop_after_attempt(self._max_attempts)
+                        | stop_before_delay(deadline)
+                    ),
+                    wait=self._wait,
+                    retry=retry_if_exception_type(RETRYABLE_ERRORS),
+                    before_sleep=log_retry,
+                ):
+                    with attempt:
+                        attempts = attempt.retry_state.attempt_number
+                        snapshot = await self._client.get_positions()
         except RetryError as exc:
             cause = exc.last_attempt.exception()
             return self._failure(started_at, attempts, cause)
         except OlhoVivoError as exc:
             return self._failure(started_at, attempts, exc)
+        except TimeoutError:
+            timeout = CycleDeadlineError(
+                f"cycle exceeded {deadline:g} s during attempt {attempts}"
+            )
+            timeout.__cause__ = last_error
+            return self._failure(started_at, attempts, timeout)
 
         return self._success(started_at, attempts, snapshot)
 
@@ -165,7 +195,7 @@ class PositionCollector:
         )
 
     @staticmethod
-    def _log_retry(retry_state: RetryCallState) -> None:
+    def _log_retry(retry_state: RetryCallState) -> BaseException | None:
         outcome = retry_state.outcome
         error = outcome.exception() if outcome is not None else None
         logger.warning(
@@ -173,9 +203,17 @@ class PositionCollector:
             retry_state.attempt_number,
             _describe(error),
         )
+        return error
+
+
+class CycleDeadlineError(Exception):
+    """O ciclo passou do prazo; ``__cause__`` guarda o último erro da API."""
 
 
 def _describe(error: BaseException | None) -> str:
     if error is None:
         return "unknown error"
-    return f"{type(error).__name__}: {error}"
+    description = f"{type(error).__name__}: {error}"
+    if isinstance(error, CycleDeadlineError) and error.__cause__ is not None:
+        description += f" (last error: {_describe(error.__cause__)})"
+    return description

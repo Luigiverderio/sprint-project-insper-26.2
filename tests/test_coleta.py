@@ -1,11 +1,13 @@
+import asyncio
 import logging
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
 import pytest
-from tenacity import wait_none
+from tenacity import wait_fixed, wait_none
 
 from onibus.coleta.__main__ import collect_once
 from onibus.coleta.coletor import CycleStatus, PositionCollector
@@ -48,7 +50,8 @@ POSITIONS: dict[str, Any] = {
     ],
 }
 
-# Roteiro de /Posicao: código HTTP, "invalid" (corpo que não é JSON) ou exceção.
+# Roteiro de /Posicao: código HTTP, "invalid" (corpo que não é JSON), "hang"
+# (nunca responde) ou exceção.
 Reply = int | str | Exception
 
 
@@ -61,7 +64,7 @@ class FakeOlhoVivo:
         self.logins = 0
         self.position_calls = 0
 
-    def handler(self, request: httpx.Request) -> httpx.Response:
+    async def handler(self, request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/Login/Autenticar"):
             self.logins += 1
             return httpx.Response(200, json=request.url.params["token"] == self.token)
@@ -72,6 +75,8 @@ class FakeOlhoVivo:
                 raise reply
             if reply == "invalid":
                 return httpx.Response(200, text="<html>erro</html>")
+            if reply == "hang":
+                await asyncio.sleep(3600)
             assert isinstance(reply, int)
             return httpx.Response(reply, json=POSITIONS if reply == 200 else None)
         return httpx.Response(404)
@@ -196,6 +201,42 @@ async def test_cycle_gives_up_after_five_attempts() -> None:
     assert result.attempts == 5
     assert api.position_calls == 5
     assert result.record_count == 0
+    assert result.failure_cause is not None
+    assert "UnavailableError" in result.failure_cause
+
+
+async def test_cycle_stops_at_deadline_when_api_hangs() -> None:
+    api = FakeOlhoVivo([500, "hang"])
+    async with api.client() as client:
+        collector = PositionCollector(
+            client, wait=wait_none(), deadline=timedelta(seconds=0.2)
+        )
+        started = time.monotonic()
+        result = await collector.run_cycle()
+        elapsed = time.monotonic() - started
+
+        assert result.status is CycleStatus.FAILURE
+        assert result.attempts == 2
+        assert result.failure_cause is not None
+        assert "CycleDeadlineError" in result.failure_cause
+        assert "last error: UnavailableError" in result.failure_cause
+        assert elapsed < 1
+
+        # A requisição cancelada não estraga o cliente: o próximo ciclo funciona.
+        assert (await collector.run_cycle()).status is CycleStatus.SUCCESS
+
+
+async def test_cycle_skips_retry_whose_wait_passes_deadline() -> None:
+    api = FakeOlhoVivo([500] * 10)
+    async with api.client() as client:
+        collector = PositionCollector(client, wait=wait_fixed(30))
+        started = time.monotonic()
+        result = await collector.run_cycle()
+
+    assert time.monotonic() - started < 1
+    assert result.status is CycleStatus.FAILURE
+    assert result.attempts == 1
+    assert api.position_calls == 1
     assert result.failure_cause is not None
     assert "UnavailableError" in result.failure_cause
 

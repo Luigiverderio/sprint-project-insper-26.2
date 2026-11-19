@@ -81,7 +81,8 @@ uv run --locked python -m onibus.coleta --schedule  # um ciclo a cada 30 s, até
 ```
 
 Cada ciclo faz até 5 tentativas, com espera crescente, e autentica de novo se a sessão expirar.
-Se um ciclo demorar mais que 30 s, o disparo seguinte é pulado e fica no log, sem ciclos em paralelo.
+O ciclo tem prazo de 25 s: se a API travar, ele termina como falha antes do próximo disparo.
+Se mesmo assim um ciclo passar de 30 s, o disparo seguinte é pulado e fica no log, sem ciclos em paralelo.
 Depois de 10 minutos seguidos de falha, o log registra um alerta CRITICAL.
 Por enquanto o ciclo não grava no banco: o registro na tabela de ciclos é o T8.
 
