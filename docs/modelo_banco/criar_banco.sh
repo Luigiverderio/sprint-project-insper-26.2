@@ -28,8 +28,8 @@ TESTAR=${TESTAR:-0}
 
 psql_c() { docker exec "$NOME" psql -U postgres -v ON_ERROR_STOP=1 "$@"; }
 
-echo "== imagem"
-docker build -q -t onibus-postgis-partman .
+echo "== imagem (db/Dockerfile, a mesma do make up)"
+docker build -q -t onibus-postgis-partman ../../db
 
 echo "== container $NOME (porta 127.0.0.1:$PORTA, volume $NOME-dados)"
 docker run -d --name "$NOME" \

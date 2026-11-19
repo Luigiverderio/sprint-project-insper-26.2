@@ -1,4 +1,4 @@
-.PHONY: install dev test lint format up down logs psql db-reset migrate migrate-down
+.PHONY: install dev test lint format up down logs psql db-reset migrate migrate-down seed
 
 # Comandos simples, sem sintaxe de shell, para funcionar no PowerShell e no Git Bash.
 
@@ -48,3 +48,8 @@ migrate:
 # Desfaz a última migração aplicada.
 migrate-down:
 	uv run --locked alembic downgrade -1
+
+# Dados de teste no banco local: os .sql de db/seeds/, em ordem (veja o README de lá).
+# Rode depois do make migrate.
+seed:
+	uv run --locked python -m onibus.db.seeds
