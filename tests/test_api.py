@@ -64,12 +64,27 @@ def test_health_returns_503_without_database_configuration() -> None:
     }
 
 
+def test_api_database_login_uses_its_own_variables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_API_DATABASE_USER", "api_login")
+    monkeypatch.setenv("APP_API_DATABASE_PASSWORD", "api-secret")
+    monkeypatch.setenv("APP_DATABASE_USER", "other_login")
+    monkeypatch.setenv("APP_DATABASE_PASSWORD", "other-secret")
+
+    settings = Settings()
+
+    assert settings.api_database_user == "api_login"
+    assert settings.api_database_password is not None
+    assert settings.api_database_password.get_secret_value() == "api-secret"
+
+
 def test_health_returns_503_when_database_is_down() -> None:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         settings = Settings(
             database_port=sock.getsockname()[1],
-            database_password=SecretStr("test-password"),
+            api_database_password=SecretStr("test-password"),
         )
         with TestClient(create_app(settings)) as client:
             response = client.get("/health")

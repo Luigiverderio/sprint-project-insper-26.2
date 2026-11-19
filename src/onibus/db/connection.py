@@ -11,13 +11,13 @@ from onibus.config import Settings
 
 def create_read_engine(settings: Settings) -> AsyncEngine | None:
     """Cria o pool de leitura quando o login da API está configurado."""
-    password = settings.database_password
+    password = settings.api_database_password
     if password is None or not password.get_secret_value():
         return None
 
     url = URL.create(
         "postgresql+asyncpg",
-        username=settings.database_user,
+        username=settings.api_database_user,
         password=password.get_secret_value(),
         host=settings.database_host,
         port=settings.database_port,

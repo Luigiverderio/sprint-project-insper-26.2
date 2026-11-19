@@ -76,7 +76,7 @@ ALTER ROLE api_app SET default_transaction_read_only = on;
 \password api_app
 ```
 
-Defina a mesma senha em `APP_DATABASE_PASSWORD` no seu `.env`.
+Defina a mesma senha em `APP_API_DATABASE_PASSWORD` no seu `.env`.
 Se a API estiver no Compose, aplique a configuração com `docker compose up -d api`.
 Se executar a API diretamente na máquina, configure `APP_DATABASE_HOST`,
 `APP_DATABASE_PORT` e `APP_DATABASE_NAME` para o banco publicado pelo Compose.

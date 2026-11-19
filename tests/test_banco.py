@@ -192,8 +192,8 @@ def test_health_reads_last_olho_vivo_cycle_as_api_login(db: PostgresContainer) -
         database_host=db.get_container_host_ip(),
         database_port=int(db.get_exposed_port(5432)),
         database_name=DB_NAME,
-        database_user=API,
-        database_password=SecretStr(PASSWORDS[API]),
+        api_database_user=API,
+        api_database_password=SecretStr(PASSWORDS[API]),
     )
 
     with TestClient(create_app(settings)) as client:
@@ -223,7 +223,7 @@ def test_health_reads_last_olho_vivo_cycle_as_api_login(db: PostgresContainer) -
             response.json()["last_collection_at"]
         ) == datetime.fromisoformat("2026-11-19T12:01:00+00:00")
 
-    settings.database_password = SecretStr("senha-incorreta")
+    settings.api_database_password = SecretStr("senha-incorreta")
     with TestClient(create_app(settings)) as client:
         unavailable = client.get("/health")
         assert unavailable.status_code == 503
