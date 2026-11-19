@@ -71,6 +71,20 @@ O módulo expõe uma app factory para criar instâncias isoladas nos testes.
 A base do T1 oferece inicialização e documentação OpenAPI.
 A conexão com o banco, /health, CORS e rotas /v1 entram no T10.
 
+## Coletar da Olho Vivo
+
+Coloque o token da API no .env (APP_OLHO_VIVO_TOKEN) e rode:
+
+```sh
+uv run --locked python -m onibus.coleta             # um ciclo só, para conferir o token
+uv run --locked python -m onibus.coleta --schedule  # um ciclo a cada 30 s, até Ctrl+C
+```
+
+Cada ciclo faz até 5 tentativas, com espera crescente, e autentica de novo se a sessão expirar.
+Se um ciclo demorar mais que 30 s, o disparo seguinte é pulado e fica no log, sem ciclos em paralelo.
+Depois de 10 minutos seguidos de falha, o log registra um alerta CRITICAL.
+Por enquanto o ciclo não grava no banco: o registro na tabela de ciclos é o T8.
+
 ## Qualidade
 
 ```sh
