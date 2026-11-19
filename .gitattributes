@@ -1,3 +1,5 @@
 # Scripts executados dentro dos containers Linux precisam de LF, mesmo no Windows.
 *.sh text eol=lf
 Dockerfile text eol=lf
+# O esquema é copiado para a imagem do banco.
+*.sql text eol=lf

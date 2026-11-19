@@ -1,4 +1,4 @@
-.PHONY: install dev test lint format up down logs
+.PHONY: install dev test lint format up down logs psql db-reset
 
 # Comandos simples, sem sintaxe de shell, para funcionar no PowerShell e no Git Bash.
 
@@ -20,7 +20,7 @@ lint:
 format:
 	uv run --locked ruff format .
 
-# Docker: API e worker (docker-compose.yml). O banco entra depois.
+# Docker: banco, API e worker (docker-compose.yml).
 up:
 	docker compose up -d --build --wait
 
@@ -29,3 +29,12 @@ down:
 
 logs:
 	docker compose logs -f
+
+# Abre o psql no banco do Docker (dono do banco; só para desenvolvimento).
+psql:
+	docker compose exec db sh -c 'psql -U postgres -d "$$POSTGRES_DB"'
+
+# APAGA os dados do banco e o recria do zero com o esquema atual.
+db-reset:
+	docker compose down -v
+	docker compose up -d --build --wait

@@ -1,8 +1,7 @@
-# Ambiente local do backend: API e worker. Suba com `make up`.
-# Valores vêm do .env (copie de .env.example).
-# O banco (PostGIS + pg_partman) entra quando o time tiver o banco definido.
-# Sem bind mounts: o código entra na imagem e `make up` reconstrói o que mudou.
-# Assim ninguém precisa liberar pastas no File Sharing do Docker Desktop.
+# Ambiente local do backend: banco, API e worker. Suba com `make up`.
+# Valores vêm do .env (copie de .env.example). A senha do banco não tem valor padrão.
+# Sem bind mounts: código e esquema entram nas imagens, e `make up` reconstrói o que
+# mudou. Assim ninguém precisa liberar pastas no File Sharing do Docker Desktop.
 name: onibus
 
 x-app: &app
@@ -13,6 +12,42 @@ x-app: &app
       required: false
 
 services:
+  # Postgres 16 + PostGIS + pg_partman, com o esquema de docs/modelo_banco aplicado
+  # na primeira subida. A manutenção das partições roda a cada hora, dentro do
+  # próprio Postgres (pg_partman_bgw), que precisa do usuário postgres.
+  db:
+    build:
+      context: ./docs/modelo_banco
+      dockerfile: ../../db/Dockerfile
+    image: onibus-db:16
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_partman_bgw
+      - -c
+      - pg_partman_bgw.dbname=${POSTGRES_DB:-onibus}
+      - -c
+      - pg_partman_bgw.role=postgres
+      - -c
+      - pg_partman_bgw.interval=3600
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-onibus}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - dados_postgres:/var/lib/postgresql/data
+    healthcheck:
+      # -h 127.0.0.1: durante a criação o servidor temporário só aceita socket.
+      # Testar por TCP evita marcar "saudável" antes de o esquema terminar.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
   api:
     <<: *app
     ports:
@@ -26,3 +61,6 @@ services:
   worker:
     <<: *app
     command: ["python", "-m", "onibus.processamento"]
+
+volumes:
+  dados_postgres:
