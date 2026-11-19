@@ -217,6 +217,34 @@ def test_read_feed_rejects_a_shape_that_is_not_a_line(tmp_path: Path) -> None:
         read_feed(make_gtfs(tmp_path / "gtfs.zip", **{"shapes.txt": shapes}))
 
 
+@pytest.mark.parametrize(
+    ("lat", "lon", "message"),
+    [
+        ("nan", "-46.6300", "latitude fora da faixa"),
+        ("-23.5500", "inf", "longitude fora da faixa"),
+        ("-95.0", "-46.6300", "latitude fora da faixa"),
+        ("-23.5500", "-200.0", "longitude fora da faixa"),
+        ("abc", "-46.6300", "valor da latitude em parada 301790 inválido"),
+    ],
+)
+def test_read_feed_rejects_invalid_stop_coordinates(
+    tmp_path: Path, lat: str, lon: str, message: str
+) -> None:
+    stops = FILES["stops.txt"].replace("-23.5500,-46.6300", f"{lat},{lon}")
+
+    with pytest.raises(GtfsError, match=message):
+        read_feed(make_gtfs(tmp_path / "gtfs.zip", **{"stops.txt": stops}))
+
+
+def test_read_feed_rejects_invalid_shape_coordinates(tmp_path: Path) -> None:
+    shapes = FILES["shapes.txt"].replace(
+        "90001,-23.5500,-46.6300,1,0.0", "90001,nan,-46.6300,1,0.0"
+    )
+
+    with pytest.raises(GtfsError, match="traçado 90001"):
+        read_feed(make_gtfs(tmp_path / "gtfs.zip", **{"shapes.txt": shapes}))
+
+
 def test_read_feed_rejects_a_file_that_is_not_a_zip(tmp_path: Path) -> None:
     path = tmp_path / "nao.zip"
     path.write_text("isto não é um zip", encoding="utf-8")

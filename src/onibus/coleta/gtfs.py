@@ -18,6 +18,7 @@ import csv
 import hashlib
 import io
 import logging
+import math
 import re
 import sys
 import zipfile
@@ -188,6 +189,17 @@ def _number(value: str, what: str) -> float:
         raise GtfsError(f"{what} inválido no GTFS: {value!r}") from None
 
 
+def _coordinate(lat_text: str, lon_text: str, where: str) -> tuple[float, float]:
+    """Latitude e longitude válidas: números finitos (sem ``nan``) dentro da faixa."""
+    lat = _number(lat_text, f"valor da latitude em {where}")
+    lon = _number(lon_text, f"valor da longitude em {where}")
+    if not (math.isfinite(lat) and -90 <= lat <= 90):
+        raise GtfsError(f"latitude fora da faixa em {where}: {lat_text!r}")
+    if not (math.isfinite(lon) and -180 <= lon <= 180):
+        raise GtfsError(f"longitude fora da faixa em {where}: {lon_text!r}")
+    return lat, lon
+
+
 def _date(value: str) -> date:
     try:
         return datetime.strptime(value, "%Y%m%d").date()
@@ -243,16 +255,7 @@ def read_feed(path: Path | str) -> Feed:
             )
             for row in _rows(archive, "calendar.txt")
         ]
-        feed.stops = [
-            StopRow(
-                stop_id=row["stop_id"],
-                name=_text(row.get("stop_name", "")),
-                description=_text(row.get("stop_desc", "")),
-                lat=_number(row["stop_lat"], "stop_lat"),
-                lon=_number(row["stop_lon"], "stop_lon"),
-            )
-            for row in _rows(archive, "stops.txt")
-        ]
+        feed.stops = [_stop(row) for row in _rows(archive, "stops.txt")]
         feed.shapes = _read_shapes(archive)
         feed.trips = [_trip(row) for row in _rows(archive, "trips.txt")]
         feed.frequencies = [
@@ -289,8 +292,9 @@ def _read_shapes(archive: zipfile.ZipFile) -> list[ShapeRow]:
     """Um traçado por ``shape_id``, com os pontos na ordem da sequência."""
     points: dict[str, list[tuple[int, str, str]]] = defaultdict(list)
     for row in _rows(archive, "shapes.txt"):
-        _number(row["shape_pt_lat"], "shape_pt_lat")
-        _number(row["shape_pt_lon"], "shape_pt_lon")
+        _coordinate(
+            row["shape_pt_lat"], row["shape_pt_lon"], f"traçado {row['shape_id']}"
+        )
         sequence = _int(row["shape_pt_sequence"], "shape_pt_sequence")
         points[row["shape_id"]].append(
             (sequence, row["shape_pt_lon"], row["shape_pt_lat"])
@@ -306,6 +310,17 @@ def _read_shapes(archive: zipfile.ZipFile) -> list[ShapeRow]:
         wkt = ", ".join(f"{lon} {lat}" for _, lon, lat in shape_points)
         shapes.append(ShapeRow(shape_id=shape_id, wkt=f"LINESTRING({wkt})"))
     return shapes
+
+
+def _stop(row: dict[str, str]) -> StopRow:
+    lat, lon = _coordinate(row["stop_lat"], row["stop_lon"], f"parada {row['stop_id']}")
+    return StopRow(
+        stop_id=row["stop_id"],
+        name=_text(row.get("stop_name", "")),
+        description=_text(row.get("stop_desc", "")),
+        lat=lat,
+        lon=lon,
+    )
 
 
 def _trip(row: dict[str, str]) -> TripRow:
