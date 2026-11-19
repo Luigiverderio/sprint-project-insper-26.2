@@ -24,10 +24,12 @@ class Settings(BaseSettings):
     database_host: str = "127.0.0.1"
     database_port: int = Field(default=5432, ge=1, le=65535)
     database_name: str = "onibus"
-    # Login da API (papel onibus_leitura). Coletor e worker terão logins próprios
-    # (ADR-001, P7), por isso o nome não é genérico.
+    # Cada serviço tem o próprio login (ADR-001, P7). API: papel onibus_leitura.
     api_database_user: str = "api_app"
     api_database_password: SecretStr | None = None
+    # Coletor: papel onibus_coletor (só INSERT no bruto).
+    coletor_database_user: str = "coletor_app"
+    coletor_database_password: SecretStr | None = None
     cors_origins: list[str] = Field(default_factory=list)
 
 

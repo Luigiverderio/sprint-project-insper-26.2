@@ -122,19 +122,31 @@ make load-gtfs GTFS=caminho/do/gtfs.zip
 
 ## Coletar da Olho Vivo
 
-Coloque o token da API no .env (APP_OLHO_VIVO_TOKEN) e rode:
+A coleta contínua grava no banco com um login próprio, que só insere no bruto.
+Crie-o uma vez por ambiente com `make psql` e defina a senha quando o `psql` pedir:
+
+```sql
+CREATE ROLE coletor_app LOGIN IN ROLE onibus_coletor;
+\password coletor_app
+```
+
+Coloque a mesma senha em `APP_COLETOR_DATABASE_PASSWORD` e o token da API em
+`APP_OLHO_VIVO_TOKEN`, no .env, e rode:
 
 ```sh
 uv run --locked python -m onibus.coleta             # um ciclo só, para conferir o token
-uv run --locked python -m onibus.coleta --schedule  # um ciclo a cada 30 s, até Ctrl+C
+uv run --locked python -m onibus.coleta --schedule  # um ciclo a cada 30 s, grava no banco
 ```
 
 Cada ciclo faz até 5 tentativas, com espera crescente, e autentica de novo se a sessão expirar.
 O ciclo tem prazo de 25 s: se a API travar, ele termina como falha antes do próximo disparo.
 Se mesmo assim um ciclo passar de 30 s, o disparo seguinte é pulado e fica no log, sem ciclos em paralelo.
 Depois de 10 minutos seguidos de falha, o log registra um alerta CRITICAL.
-Cada ciclo vai para o log com a duração total e a de cada etapa (`login`, `request`, `parse`, `retry_wait`).
-Por enquanto o ciclo não grava no banco: o registro na tabela de ciclos é o T8.
+Cada ciclo vai para o log com a duração total e a de cada etapa (`login`, `request`, `parse`, `retry_wait`, `write`).
+Com `--schedule`, cada ciclo, com sucesso ou falha, vira uma linha em `bruto.ciclos_coleta`, com as durações das etapas, e as posições vão para `bruto.posicoes_gps` na mesma transação.
+Posições repetidas (mesmo veículo e horário de GPS) são ignoradas; coordenada ou sentido inválido é descartado e contado em `n_rejeitados`.
+Sem `APP_COLETOR_DATABASE_PASSWORD`, o `--schedule` não sobe. O ciclo único não grava nada.
+Fora do Compose, `APP_DATABASE_HOST` e `APP_DATABASE_PORT` apontam para o banco, como na API.
 
 ## Qualidade
 

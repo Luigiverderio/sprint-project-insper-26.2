@@ -7,15 +7,19 @@ from typing import Any
 
 import httpx
 import pytest
+from pydantic import SecretStr
 from tenacity import wait_fixed, wait_none
 
-from onibus.coleta.__main__ import collect_once
+from onibus.coleta.__main__ import collect_forever, collect_once
 from onibus.coleta.coletor import CycleStatus, PositionCollector
 from onibus.coleta.etapas import Stage, StageTimer, format_durations
 from onibus.coleta.olho_vivo import (
+    InvalidResponseError,
     InvalidTokenError,
     OlhoVivoClient,
+    OlhoVivoError,
     SessionExpiredError,
+    UnavailableError,
 )
 from onibus.config import Settings
 
@@ -155,6 +159,27 @@ async def test_client_flags_expired_session() -> None:
         with pytest.raises(SessionExpiredError):
             await client.get_positions()
         assert not client.authenticated
+
+
+@pytest.mark.parametrize(
+    ("reply", "error", "status_code"),
+    [
+        (401, SessionExpiredError, 401),
+        (503, UnavailableError, 503),
+        (404, OlhoVivoError, 404),
+        ("invalid", InvalidResponseError, 200),
+    ],
+)
+async def test_client_errors_carry_http_status(
+    reply: Reply, error: type[OlhoVivoError], status_code: int
+) -> None:
+    api = FakeOlhoVivo([reply])
+    async with api.client() as client:
+        with pytest.raises(error) as raised:
+            await client.get_positions()
+
+    assert type(raised.value) is error
+    assert raised.value.status_code == status_code
 
 
 async def test_cycle_success() -> None:
@@ -353,6 +378,15 @@ async def test_alert_fires_again_after_recovery_and_new_long_failure(
 async def test_collect_once_requires_token(capsys: pytest.CaptureFixture[str]) -> None:
     assert await collect_once(Settings()) == 2
     assert "APP_OLHO_VIVO_TOKEN" in capsys.readouterr().err
+
+
+async def test_schedule_requires_collector_database_login(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    settings = Settings(olho_vivo_token=SecretStr("token"))
+
+    assert await collect_forever(settings, asyncio.Event()) == 2
+    assert "APP_COLETOR_DATABASE_PASSWORD" in capsys.readouterr().err
 
 
 def _critical(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:

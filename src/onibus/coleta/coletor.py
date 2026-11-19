@@ -11,8 +11,8 @@ espera antes dela já passaria do prazo. Assim um ciclo nunca invade o
 seguinte, e a lacuna fica registrada como falha em vez de virar um ciclo pulado.
 
 O resultado de cada ciclo (:class:`CycleResult`) é devolvido em memória, com
-a duração de cada etapa (:mod:`onibus.coleta.etapas`). Gravar o ciclo na
-tabela de ciclos de coleta, criada no card T8, ainda falta neste card (T12).
+a duração de cada etapa (:mod:`onibus.coleta.etapas`) e o erro que encerrou o
+ciclo. :mod:`onibus.coleta.gravacao` grava o ciclo e as posições no banco.
 """
 
 import asyncio
@@ -65,7 +65,11 @@ class CycleStatus(StrEnum):
 
 @dataclass(frozen=True)
 class CycleResult:
-    """O que aconteceu num ciclo; base do registro de lacunas (T8, H13)."""
+    """O que aconteceu num ciclo; base do registro de lacunas (T8, H13).
+
+    ``error`` é a exceção que encerrou um ciclo com falha, e ``failure_cause``,
+    a descrição dela para o log e para a coluna ``erro``.
+    """
 
     started_at: datetime
     finished_at: datetime
@@ -73,6 +77,7 @@ class CycleResult:
     attempts: int
     record_count: int
     failure_cause: str | None = None
+    error: BaseException | None = None
     snapshot: PositionsSnapshot | None = None
     stage_durations: dict[Stage, float] = field(default_factory=dict)
 
@@ -209,6 +214,7 @@ class PositionCollector:
             attempts=attempts,
             record_count=0,
             failure_cause=description,
+            error=cause,
             stage_durations=timer.durations(),
         )
 

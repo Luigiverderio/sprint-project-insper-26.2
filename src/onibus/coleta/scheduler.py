@@ -6,8 +6,8 @@ se mesmo assim um ciclo demorar mais que o intervalo, o disparo seguinte é
 pulado e fica registrado no log, em vez de acumular ciclos.
 
 Cada ciclo concluído vai para o log, com a duração de cada etapa, e para
-``on_cycle``, o ponto em que o ciclo vai ser gravado na tabela de ciclos de
-coleta criada no card T8.
+``on_cycle``, que na coleta contínua grava o ciclo no banco
+(:meth:`onibus.coleta.gravacao.CycleRecorder.record`).
 """
 
 import asyncio

@@ -6,11 +6,12 @@ Etapas medidas hoje:
 - ``request``: ``GET /Posicao`` até o corpo inteiro chegar (o httpx baixa a
   resposta antes de devolver);
 - ``parse``: leitura do JSON e validação no modelo;
-- ``retry_wait``: espera entre as tentativas.
+- ``retry_wait``: espera entre as tentativas;
+- ``write``: inserção das posições no banco (:mod:`onibus.coleta.gravacao`).
 
 Cada etapa soma o tempo de todas as tentativas do ciclo. Uma etapa cortada no
-meio (prazo do ciclo estourado) também conta, até o corte. A gravação no banco
-e o registro do ciclo entram aqui quando o ciclo for gravado na tabela do T8.
+meio (prazo do ciclo estourado) também conta, até o corte. A inserção da linha
+do ciclo e o commit, que vêm depois, não entram na medida.
 """
 
 import time
@@ -26,6 +27,7 @@ class Stage(StrEnum):
     REQUEST = "request"
     PARSE = "parse"
     RETRY_WAIT = "retry_wait"
+    WRITE = "write"
 
 
 class StageTimer:

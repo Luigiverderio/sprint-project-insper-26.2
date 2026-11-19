@@ -48,7 +48,15 @@ if not any(isinstance(f, RedactTokenFilter) for f in _httpx_logger.filters):
 
 
 class OlhoVivoError(Exception):
-    """Falha ao conversar com a API Olho Vivo."""
+    """Falha ao conversar com a API Olho Vivo.
+
+    ``status_code`` é o código HTTP da resposta que gerou o erro, quando houve
+    resposta; vai para ``bruto.ciclos_coleta.http_status``.
+    """
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class InvalidTokenError(OlhoVivoError):
@@ -61,6 +69,10 @@ class SessionExpiredError(OlhoVivoError):
 
 class UnavailableError(OlhoVivoError):
     """A API respondeu com erro do servidor (5xx) ou uma resposta inválida."""
+
+
+class InvalidResponseError(UnavailableError):
+    """A resposta não é o JSON esperado. Tenta de novo, como um 5xx."""
 
 
 class _ApiModel(BaseModel):
@@ -151,10 +163,15 @@ class OlhoVivoClient:
         try:
             accepted = response.json() is True
         except ValueError as exc:
-            raise UnavailableError("Invalid response from /Login/Autenticar") from exc
+            raise InvalidResponseError(
+                "Invalid response from /Login/Autenticar",
+                status_code=response.status_code,
+            ) from exc
         if response.status_code != httpx.codes.OK or not accepted:
             self._authenticated = False
-            raise InvalidTokenError("Olho Vivo rejected the token")
+            raise InvalidTokenError(
+                "Olho Vivo rejected the token", status_code=response.status_code
+            )
         self._authenticated = True
 
     async def get_positions(self, timer: StageTimer | None = None) -> PositionsSnapshot:
@@ -165,7 +182,9 @@ class OlhoVivoClient:
             try:
                 return PositionsSnapshot.model_validate(response.json())
             except ValueError as exc:
-                raise UnavailableError("Invalid response from /Posicao") from exc
+                raise InvalidResponseError(
+                    "Invalid response from /Posicao", status_code=response.status_code
+                ) from exc
 
     async def _get(self, path: str, timer: StageTimer) -> httpx.Response:
         if not self._authenticated:
@@ -174,15 +193,21 @@ class OlhoVivoClient:
             response = await self._http.get(f"{self._base_url}{path}")
         if response.status_code == httpx.codes.UNAUTHORIZED:
             self._authenticated = False
-            raise SessionExpiredError(f"Session expired on {path}")
+            raise SessionExpiredError(
+                f"Session expired on {path}", status_code=response.status_code
+            )
         _raise_for_server_error(response)
         if response.status_code != httpx.codes.OK:
-            raise OlhoVivoError(f"Unexpected status {response.status_code} on {path}")
+            raise OlhoVivoError(
+                f"Unexpected status {response.status_code} on {path}",
+                status_code=response.status_code,
+            )
         return response
 
 
 def _raise_for_server_error(response: httpx.Response) -> None:
     if response.is_server_error:
         raise UnavailableError(
-            f"Olho Vivo returned {response.status_code} on {response.url.path}"
+            f"Olho Vivo returned {response.status_code} on {response.url.path}",
+            status_code=response.status_code,
         )

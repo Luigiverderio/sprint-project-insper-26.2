@@ -2,7 +2,9 @@
 
 Sem argumentos, roda um ciclo só, para conferir o token e a conexão, e não grava
 nada no banco. Com ``--schedule``, roda um ciclo a cada 30 s até receber Ctrl+C
-ou SIGTERM. O token vem de ``APP_OLHO_VIVO_TOKEN`` (no ``.env``).
+ou SIGTERM e grava cada ciclo no bruto (:mod:`onibus.coleta.gravacao`). O token
+vem de ``APP_OLHO_VIVO_TOKEN``, e o login do banco, de
+``APP_COLETOR_DATABASE_USER`` e ``APP_COLETOR_DATABASE_PASSWORD`` (no ``.env``).
 """
 
 import argparse
@@ -13,11 +15,17 @@ import sys
 
 from onibus.coleta.coletor import CycleStatus, PositionCollector
 from onibus.coleta.etapas import format_durations
+from onibus.coleta.gravacao import CycleRecorder
 from onibus.coleta.olho_vivo import OlhoVivoClient
 from onibus.coleta.scheduler import CollectionScheduler
 from onibus.config import Settings
+from onibus.db.connection import create_collector_engine
 
 MISSING_TOKEN = "APP_OLHO_VIVO_TOKEN não configurado no .env"
+MISSING_DATABASE_LOGIN = (
+    "APP_COLETOR_DATABASE_PASSWORD não configurado no .env:"
+    " a coleta contínua grava cada ciclo no banco"
+)
 
 
 async def collect_once(settings: Settings) -> int:
@@ -40,12 +48,28 @@ async def collect_once(settings: Settings) -> int:
 
 
 async def collect_forever(settings: Settings, stop: asyncio.Event) -> int:
-    """Coleta a cada 30 s até ``stop`` e devolve o código de saída do processo."""
+    """Coleta a cada 30 s até ``stop``, gravando cada ciclo no banco.
+
+    Devolve o código de saída do processo.
+    """
     if settings.olho_vivo_token is None:
         print(MISSING_TOKEN, file=sys.stderr)
         return 2
-    async with OlhoVivoClient(settings.olho_vivo_token.get_secret_value()) as client:
-        await CollectionScheduler(PositionCollector(client)).run(stop)
+    engine = create_collector_engine(settings)
+    if engine is None:
+        print(MISSING_DATABASE_LOGIN, file=sys.stderr)
+        return 2
+    recorder = CycleRecorder(engine)
+    try:
+        async with OlhoVivoClient(
+            settings.olho_vivo_token.get_secret_value()
+        ) as client:
+            scheduler = CollectionScheduler(
+                PositionCollector(client), on_cycle=recorder.record
+            )
+            await scheduler.run(stop)
+    finally:
+        await engine.dispose()
     return 0
 
 

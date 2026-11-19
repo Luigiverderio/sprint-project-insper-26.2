@@ -16,6 +16,18 @@ def test_settings_read_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.log_level == "DEBUG"
 
 
+def test_settings_read_collector_database_login(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_COLETOR_DATABASE_PASSWORD", "senha-do-coletor")
+
+    settings = Settings()
+
+    assert settings.coletor_database_user == "coletor_app"
+    assert settings.coletor_database_password is not None
+    assert settings.coletor_database_password.get_secret_value() == "senha-do-coletor"
+
+
 def test_settings_reject_invalid_log_level(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_LOG_LEVEL", "INVALID")
     with pytest.raises(ValidationError):

@@ -1,8 +1,9 @@
-"""Conexão assíncrona da API com o PostgreSQL."""
+"""Conexão assíncrona dos serviços com o PostgreSQL, cada um com o seu login."""
 
 from dataclasses import dataclass
 from datetime import datetime
 
+from pydantic import SecretStr
 from sqlalchemy import URL, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
@@ -17,24 +18,54 @@ class CollectionHealth:
     last_successful_collection_at: datetime | None
 
 
-def create_read_engine(settings: Settings) -> AsyncEngine | None:
-    """Cria o pool de leitura quando o login da API está configurado."""
-    password = settings.api_database_password
+def _service_url(
+    settings: Settings, user: str, password: SecretStr | None
+) -> URL | None:
     if password is None or not password.get_secret_value():
         return None
-
-    url = URL.create(
+    return URL.create(
         "postgresql+asyncpg",
-        username=settings.api_database_user,
+        username=user,
         password=password.get_secret_value(),
         host=settings.database_host,
         port=settings.database_port,
         database=settings.database_name,
     )
+
+
+def create_read_engine(settings: Settings) -> AsyncEngine | None:
+    """Cria o pool de leitura quando o login da API está configurado."""
+    url = _service_url(
+        settings, settings.api_database_user, settings.api_database_password
+    )
+    if url is None:
+        return None
     return create_async_engine(
         url,
         connect_args={"timeout": 3, "command_timeout": 3},
         pool_pre_ping=True,
+        pool_timeout=3,
+    )
+
+
+def create_collector_engine(settings: Settings) -> AsyncEngine | None:
+    """Cria a conexão do coletor quando o login dele está configurado.
+
+    Um ciclo grava de uma vez as posições de toda a frota (milhares de linhas),
+    então cada comando tem mais folga que na API. Um banco travado ainda é
+    cortado antes do próximo ciclo, 30 s depois.
+    """
+    url = _service_url(
+        settings, settings.coletor_database_user, settings.coletor_database_password
+    )
+    if url is None:
+        return None
+    return create_async_engine(
+        url,
+        connect_args={"timeout": 3, "command_timeout": 5},
+        pool_pre_ping=True,
+        pool_size=1,
+        max_overflow=0,
         pool_timeout=3,
     )
 
