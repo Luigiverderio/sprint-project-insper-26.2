@@ -9,7 +9,7 @@ dev:
 	uv run --locked uvicorn onibus.api.main:create_app --factory --reload
 
 test:
-	uv run --locked pytest
+	uv run --locked pytest --require-docker
 
 # mypy via python -m: o Controle de Aplicativo do Windows bloqueia o mypy.exe.
 lint:

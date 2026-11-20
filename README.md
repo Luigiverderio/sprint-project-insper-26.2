@@ -158,7 +158,12 @@ uv run --locked mypy
 ```
 
 Com GNU Make instalado, use make test e make lint.
-No Windows, os comandos uv acima também funcionam diretamente no PowerShell.
+O `make test` exige o Docker em execução. O Testcontainers constrói a imagem de
+banco do projeto, inicia um PostgreSQL descartável e aplica as migrações.
+No PowerShell, `uv run --locked pytest --require-docker` executa a mesma suíte.
+Para rodar os testes sem banco, use `uv run --locked pytest` com o Docker
+desligado. Nesse modo, os testes de integração são pulados.
+Para medir a cobertura, acrescente `--cov=onibus` ao comando do pytest.
 Se o Windows bloquear o mypy.exe ("política de Controle de Aplicativo"), use uv run --locked python -m mypy, que é o que o make lint faz.
 Para formatar, execute uv run --locked ruff format .
 

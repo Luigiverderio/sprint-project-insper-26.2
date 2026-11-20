@@ -16,6 +16,14 @@ REPO = Path(__file__).resolve().parents[1]
 INICIO_PARTICOES = "2026-08-01"
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--require-docker",
+        action="store_true",
+        help="Fail instead of skipping when the integration database cannot start.",
+    )
+
+
 @pytest.fixture(autouse=True)
 def isolate_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Impede que os testes carreguem configurações locais ou segredos."""
@@ -34,15 +42,18 @@ def isolate_settings(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(scope="session")
-def db_image() -> str:
+def db_image(request: pytest.FixtureRequest) -> str:
     """Imagem do banco do ``make up`` (``db/Dockerfile``), ainda sem esquema.
 
-    Sem Docker rodando, os testes que usam o banco são pulados.
+    Sem Docker, ``make test`` falha. O pytest direto permite rodar só os unitários.
     """
     try:
         DockerClient().client.ping()
     except Exception:
-        pytest.skip("Docker indisponível: os testes do banco precisam dele rodando")
+        message = "Docker indisponível: inicie o Docker para rodar os testes do banco."
+        if request.config.getoption("--require-docker"):
+            pytest.exit(message, returncode=pytest.ExitCode.TESTS_FAILED)
+        pytest.skip(message)
     image = DockerImage(path=str(REPO / "db"), tag="onibus-db:test", clean_up=False)
     return str(image.build())
 
