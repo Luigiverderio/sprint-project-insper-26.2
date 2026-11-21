@@ -147,18 +147,19 @@ Cada ciclo vai para o log com a duração total e a de cada etapa (`login`, `req
 Com `--schedule`, o ciclo, as posições e o catálogo em
 `referencia.linhas_olhovivo` são gravados na mesma transação.
 Linhas novas entram com o horário do ciclo. Para linhas conhecidas, o último
-avistamento é renovado após uma hora ou quando o letreiro, sentido ou destinos
-mudarem. Mudanças no catálogo aparecem no log.
+avistamento é renovado no máximo uma vez por hora. Mudanças de letreiro,
+sentido ou destinos são gravadas no mesmo ciclo e aparecem no log.
 
 As posições repetidas (mesmo veículo e horário de GPS) são ignoradas.
 Veículos sem identificador, horário, coordenada ou linha/sentido válido entram
 na contagem de `n_rejeitados`. Acessibilidade e destinos ausentes ficam nulos.
 
 `APP_COLETA_DIR_BRUTOS` aponta para o diretório gravável dos brutos
-(padrão `dados/olho_vivo`). Cada corpo recebido com HTTP 200 da
-`/Posicao` é compactado sem reformatar em `AAAA/MM/DD/<ciclo_id>.json.gz`,
-com a data de início em UTC. O caminho relativo fica em
-`bruto.ciclos_coleta.arquivo_bruto`. Se o disco falhar, o ciclo é gravado
+(padrão `dados/olho_vivo`). A última resposta de `/Posicao` de cada ciclo,
+incluindo respostas de erro, é compactada com os bytes originais em
+`AAAA/MM/DD/<ciclo_id>.json.gz`, com a data de início em UTC. O caminho
+relativo fica em `bruto.ciclos_coleta.arquivo_bruto`. Sem resposta de
+`/Posicao`, o caminho fica nulo. Se o disco falhar, o ciclo também é gravado
 com caminho nulo e a falha aparece no log. Em contêiner, configure o
 diretório em um volume persistente.
 

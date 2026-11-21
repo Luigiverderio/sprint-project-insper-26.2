@@ -62,11 +62,19 @@ class OlhoVivoError(Exception):
 
     ``status_code`` é o código HTTP da resposta que gerou o erro, quando houve
     resposta; vai para ``bruto.ciclos_coleta.http_status``.
+    ``raw_body`` guarda o corpo se a resposta veio de ``/Posicao``.
     """
 
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        raw_body: bytes | None = None,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.raw_body = raw_body
 
 
 class InvalidTokenError(OlhoVivoError):
@@ -83,16 +91,6 @@ class UnavailableError(OlhoVivoError):
 
 class InvalidResponseError(UnavailableError):
     """A resposta não é o JSON esperado. Tenta de novo, como um 5xx."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        status_code: int | None = None,
-        raw_body: bytes | None = None,
-    ) -> None:
-        super().__init__(message, status_code=status_code)
-        self.raw_body = raw_body
 
 
 class _ApiModel(BaseModel):
@@ -278,13 +276,16 @@ class OlhoVivoClient:
         if response.status_code == httpx.codes.UNAUTHORIZED:
             self._authenticated = False
             raise SessionExpiredError(
-                f"Session expired on {path}", status_code=response.status_code
+                f"Session expired on {path}",
+                status_code=response.status_code,
+                raw_body=response.content,
             )
-        _raise_for_server_error(response)
+        _raise_for_server_error(response, raw_body=response.content)
         if response.status_code != httpx.codes.OK:
             raise OlhoVivoError(
                 f"Unexpected status {response.status_code} on {path}",
                 status_code=response.status_code,
+                raw_body=response.content,
             )
         return response
 
@@ -298,9 +299,12 @@ def _default_http_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=verify)
 
 
-def _raise_for_server_error(response: httpx.Response) -> None:
+def _raise_for_server_error(
+    response: httpx.Response, *, raw_body: bytes | None = None
+) -> None:
     if response.is_server_error:
         raise UnavailableError(
             f"Olho Vivo returned {response.status_code} on {response.url.path}",
             status_code=response.status_code,
+            raw_body=raw_body,
         )

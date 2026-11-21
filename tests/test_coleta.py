@@ -215,8 +215,10 @@ async def test_client_reuses_session_between_calls() -> None:
 async def test_client_rejects_invalid_token() -> None:
     api = FakeOlhoVivo()
     async with api.client(token="wrong") as client:
-        with pytest.raises(InvalidTokenError):
+        with pytest.raises(InvalidTokenError) as raised:
             await client.get_positions()
+
+    assert raised.value.raw_body is None
 
 
 async def test_client_flags_expired_session() -> None:
@@ -246,6 +248,7 @@ async def test_client_errors_carry_http_status(
 
     assert type(raised.value) is error
     assert raised.value.status_code == status_code
+    assert raised.value.raw_body is not None
 
 
 async def test_cycle_success() -> None:

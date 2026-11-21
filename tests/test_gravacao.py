@@ -283,7 +283,7 @@ async def test_collected_cycle_is_recorded_with_its_positions(
     ]
 
 
-async def test_line_catalogue_refreshes_hourly_or_when_metadata_changes(
+async def test_line_catalogue_refreshes_timestamp_hourly_and_metadata_immediately(
     db: PostgresContainer, engine: AsyncEngine, caplog: pytest.LogCaptureFixture
 ) -> None:
     payload = _positions(6000)
@@ -324,27 +324,29 @@ async def test_line_catalogue_refreshes_hourly_or_when_metadata_changes(
     payload["l"][0]["c"] = "701A-21"
     payload["l"][0]["lt0"] = "TERMINAL NOVO"
     changed_at = refresh + timedelta(seconds=30)
+    changed = replace(
+        initial,
+        started_at=changed_at,
+        snapshot=PositionsSnapshot.model_validate(payload),
+    )
     with caplog.at_level(logging.INFO, logger="onibus.coleta.gravacao"):
-        await recorder.write(
-            replace(
-                initial,
-                started_at=changed_at,
-                snapshot=PositionsSnapshot.model_validate(payload),
-            )
-        )
+        await recorder.write(changed)
     assert catalogue() == [
         "701A-21",
         "1",
         "TERMINAL NOVO",
         "JD. PERI",
         str(started),
-        str(started + 3630),
+        str(started + 3600),
     ]
     assert "catalogue metadata changed for cl: [91273]" in caplog.text
 
-    # Uma resposta atrasada não pode sobrescrever o catálogo mais recente.
+    # Repetir o ciclo que renovou o avistamento não reverte o letreiro.
     await recorder.write(replace(initial, started_at=refresh))
     assert catalogue()[0] == "701A-21"
+
+    await recorder.write(replace(changed, started_at=refresh + timedelta(hours=1)))
+    assert catalogue()[-2:] == [str(started), str(started + 7200)]
 
 
 async def test_cycle_archives_original_body_and_keeps_optional_fields_null(
@@ -470,6 +472,45 @@ async def test_failed_cycle_is_recorded_without_positions(
         f" WHERE ciclo_id = '{recorded.cycle_id}'",
     )
     assert count == "0"
+
+
+@pytest.mark.parametrize("ends_without_response", [False, True])
+async def test_failed_cycle_archives_last_position_response(
+    db: PostgresContainer,
+    engine: AsyncEngine,
+    tmp_path: Path,
+    ends_without_response: bool,
+) -> None:
+    raw = b'{\n  "erro": "servico indisponivel"\n}\n'
+    response_count = 0
+
+    def olho_vivo(request: httpx.Request) -> httpx.Response:
+        nonlocal response_count
+        if request.url.path.endswith("/Login/Autenticar"):
+            return httpx.Response(200, json=True)
+        response_count += 1
+        if response_count == 2 and ends_without_response:
+            raise httpx.ConnectTimeout("timeout")
+        if response_count == 1 and not ends_without_response:
+            return httpx.Response(503, content=b'{"erro":"primeira tentativa"}')
+        return httpx.Response(503, content=raw)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(olho_vivo))
+    async with OlhoVivoClient(
+        "ok", base_url="https://ov.test", http_client=http
+    ) as client:
+        result = await PositionCollector(
+            client, max_attempts=2, wait=wait_none()
+        ).run_cycle()
+
+    recorded = await CycleRecorder(engine, archive_dir=tmp_path).write(result)
+
+    assert result.status is CycleStatus.FAILURE
+    assert result.attempts == 2
+    status, path = _cycle_row(db, recorded.cycle_id, "status, arquivo_bruto")
+    assert status == ("erro_rede" if ends_without_response else "erro_http")
+    assert path == f"{result.started_at:%Y/%m/%d}/{recorded.cycle_id}.json.gz"
+    assert gzip.decompress((tmp_path / path).read_bytes()) == raw
 
 
 async def test_recorded_cycles_feed_collection_health(

@@ -102,8 +102,13 @@ UPSERT_LINES = text(
             sentido_api = EXCLUDED.sentido_api,
             letreiro_destino = EXCLUDED.letreiro_destino,
             letreiro_origem = EXCLUDED.letreiro_origem,
-            visto_ultimo_em = EXCLUDED.visto_ultimo_em
-        WHERE EXCLUDED.visto_ultimo_em >= known.visto_ultimo_em
+            visto_ultimo_em = CASE
+                WHEN EXCLUDED.visto_ultimo_em
+                     >= known.visto_ultimo_em + interval '1 hour'
+                THEN EXCLUDED.visto_ultimo_em
+                ELSE known.visto_ultimo_em
+            END
+        WHERE EXCLUDED.visto_ultimo_em > known.visto_ultimo_em
           AND (
             EXCLUDED.visto_ultimo_em >= known.visto_ultimo_em + interval '1 hour'
             OR (known.letreiro, known.sentido_api,
@@ -299,7 +304,7 @@ class CycleRecorder:
                 await connection.execute(text("SELECT public.uuid_v7()"))
             ).scalar_one()
             snapshot = result.snapshot
-            raw_body = None
+            raw_body = result.raw_body
             if snapshot is not None:
                 batch = build_batch(snapshot)
                 timer = StageTimer(self._stage_clock)
@@ -312,8 +317,6 @@ class CycleRecorder:
                 received = snapshot.vehicle_count
                 rejected = batch.rejected
                 raw_body = snapshot.raw_body
-            elif isinstance(result.error, InvalidResponseError):
-                raw_body = result.error.raw_body
             archive = await self._archive(cycle_id, result.started_at, raw_body)
             status = classify(result)
             await connection.execute(

@@ -69,6 +69,7 @@ class CycleResult:
 
     ``error`` é a exceção que encerrou um ciclo com falha, e ``failure_cause``,
     a descrição dela para o log e para a coluna ``erro``.
+    ``raw_body`` guarda a última resposta de ``/Posicao`` em ciclos com falha.
     """
 
     started_at: datetime
@@ -80,6 +81,7 @@ class CycleResult:
     error: BaseException | None = None
     snapshot: PositionsSnapshot | None = None
     stage_durations: dict[Stage, float] = field(default_factory=dict)
+    raw_body: bytes | None = field(default=None, repr=False)
 
 
 def _utc_now() -> datetime:
@@ -120,14 +122,20 @@ class PositionCollector:
         timer = StageTimer()
         attempts = 0
         last_error: BaseException | None = None
+        last_response_body: bytes | None = None
 
         async def sleep(seconds: float) -> None:
             with timer.measure(Stage.RETRY_WAIT):
                 await asyncio.sleep(seconds)
 
         def log_retry(retry_state: RetryCallState) -> None:
-            nonlocal last_error
+            nonlocal last_error, last_response_body
             last_error = self._log_retry(retry_state)
+            if (
+                isinstance(last_error, OlhoVivoError)
+                and last_error.raw_body is not None
+            ):
+                last_response_body = last_error.raw_body
 
         try:
             async with asyncio.timeout(deadline):
@@ -146,15 +154,17 @@ class PositionCollector:
                         snapshot = await self._client.get_positions(timer)
         except RetryError as exc:
             cause = exc.last_attempt.exception()
-            return self._failure(started_at, attempts, timer, cause)
+            return self._failure(started_at, attempts, timer, cause, last_response_body)
         except OlhoVivoError as exc:
-            return self._failure(started_at, attempts, timer, exc)
+            return self._failure(started_at, attempts, timer, exc, last_response_body)
         except TimeoutError:
             timeout = CycleDeadlineError(
                 f"cycle exceeded {deadline:g} s during attempt {attempts}"
             )
             timeout.__cause__ = last_error
-            return self._failure(started_at, attempts, timer, timeout)
+            return self._failure(
+                started_at, attempts, timer, timeout, last_response_body
+            )
 
         return self._success(started_at, attempts, timer, snapshot)
 
@@ -188,7 +198,10 @@ class PositionCollector:
         attempts: int,
         timer: StageTimer,
         cause: BaseException | None,
+        raw_body: bytes | None,
     ) -> CycleResult:
+        if isinstance(cause, OlhoVivoError) and cause.raw_body is not None:
+            raw_body = cause.raw_body
         description = _describe(cause)
         logger.error(
             "Olho Vivo collection cycle failed after %d attempt(s): %s",
@@ -216,6 +229,7 @@ class PositionCollector:
             failure_cause=description,
             error=cause,
             stage_durations=timer.durations(),
+            raw_body=raw_body,
         )
 
     @staticmethod
