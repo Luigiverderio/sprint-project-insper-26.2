@@ -2,12 +2,14 @@ import asyncio
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from apscheduler.triggers.interval import IntervalTrigger
+from pydantic import SecretStr
 
 from onibus.coleta.__main__ import collect_forever
-from onibus.coleta.coletor import CycleResult, CycleStatus
+from onibus.coleta.coletor import CycleResult, CycleStatus, PositionCollector
 from onibus.coleta.etapas import Stage
 from onibus.coleta.scheduler import CYCLE_INTERVAL, CollectionScheduler
 from onibus.config import Settings
@@ -64,6 +66,31 @@ def test_default_job_runs_every_30_seconds_without_overlap() -> None:
     assert job.trigger.interval == timedelta(seconds=30)
     assert job.max_instances == 1
     assert job.coalesce is True
+
+
+async def test_collection_configures_the_interval_and_cycle_deadline() -> None:
+    engine = AsyncMock()
+    settings = Settings(
+        olho_vivo_token=SecretStr("testing"),
+        coleta_intervalo_s=45,
+    )
+    with (
+        patch("onibus.coleta.__main__.create_collector_engine", return_value=engine),
+        patch.object(CollectionScheduler, "run", new_callable=AsyncMock),
+        patch(
+            "onibus.coleta.__main__.PositionCollector", wraps=PositionCollector
+        ) as collector_factory,
+        patch(
+            "onibus.coleta.__main__.CollectionScheduler", wraps=CollectionScheduler
+        ) as scheduler_factory,
+    ):
+        stop = asyncio.Event()
+        stop.set()
+        assert await collect_forever(settings, stop) == 0
+
+    assert collector_factory.call_args.kwargs["deadline"] == timedelta(seconds=40)
+    assert scheduler_factory.call_args.kwargs["interval"] == timedelta(seconds=45)
+    engine.dispose.assert_awaited_once()
 
 
 async def test_runs_a_cycle_right_away_and_repeats() -> None:

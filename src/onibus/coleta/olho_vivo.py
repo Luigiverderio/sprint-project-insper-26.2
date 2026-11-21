@@ -10,13 +10,23 @@ Cada método faz uma única tentativa. O retry fica no coletor
 """
 
 import logging
+import os
 import re
+import ssl
+import sys
 from datetime import datetime
 from types import TracebackType
-from typing import Self
+from typing import Any, Self
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from onibus.coleta.etapas import Stage, StageTimer
 
@@ -74,6 +84,16 @@ class UnavailableError(OlhoVivoError):
 class InvalidResponseError(UnavailableError):
     """A resposta não é o JSON esperado. Tenta de novo, como um 5xx."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        raw_body: bytes | None = None,
+    ) -> None:
+        super().__init__(message, status_code=status_code)
+        self.raw_body = raw_body
+
 
 class _ApiModel(BaseModel):
     model_config = ConfigDict(populate_by_name=True, frozen=True)
@@ -82,8 +102,8 @@ class _ApiModel(BaseModel):
 class VehiclePosition(_ApiModel):
     """Um veículo em ``Posicao``: campo ``vs`` de cada linha."""
 
-    prefix: int = Field(alias="p")
-    accessible: bool = Field(alias="a")
+    prefix: int = Field(alias="p", ge=-(2**31), lt=2**31)
+    accessible: bool | None = Field(default=None, alias="a")
     reported_at: datetime = Field(alias="ta")
     latitude: float = Field(alias="py")
     longitude: float = Field(alias="px")
@@ -92,13 +112,40 @@ class VehiclePosition(_ApiModel):
 class LinePositions(_ApiModel):
     """Uma linha em ``Posicao`` com os veículos localizados."""
 
-    code: str = Field(alias="c")
-    line_id: int = Field(alias="cl")
+    code: str | None = Field(default=None, alias="c")
+    line_id: int = Field(alias="cl", ge=-(2**31), lt=2**31)
     direction: int = Field(alias="sl")
-    destination: str = Field(alias="lt0")
-    origin: str = Field(alias="lt1")
-    vehicle_count: int = Field(alias="qv")
+    destination: str | None = Field(default=None, alias="lt0")
+    origin: str | None = Field(default=None, alias="lt1")
+    vehicle_count: int | None = Field(default=None, alias="qv")
     vehicles: list[VehiclePosition] = Field(alias="vs")
+    rejected_vehicles: int = Field(default=0, exclude=True)
+
+    @field_validator("code", "destination", "origin", mode="before")
+    @classmethod
+    def validate_catalogue_text(cls, value: object) -> str | None:
+        """Preserva as posições se um texto do catálogo não puder ser salvo."""
+        if isinstance(value, str) and "\x00" not in value:
+            return value
+        return None
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_vehicles(cls, data: Any) -> Any:
+        """Valida cada veículo separadamente e preserva o total recebido."""
+        if not isinstance(data, dict):
+            return data
+        key = "vs" if "vs" in data else "vehicles"
+        vehicles = data.get(key)
+        if not isinstance(vehicles, list):
+            return data
+        valid = []
+        for vehicle in vehicles:
+            try:
+                valid.append(VehiclePosition.model_validate(vehicle))
+            except ValidationError:
+                continue
+        return {**data, key: valid, "rejected_vehicles": len(vehicles) - len(valid)}
 
 
 class PositionsSnapshot(_ApiModel):
@@ -106,11 +153,45 @@ class PositionsSnapshot(_ApiModel):
 
     reference_time: str = Field(alias="hr")
     lines: list[LinePositions] = Field(alias="l")
+    rejected_vehicles: int = Field(default=0, exclude=True)
+    raw_body: bytes | None = Field(default=None, exclude=True, repr=False)
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_lines(cls, data: Any) -> Any:
+        """Descarta linhas inválidas e contabiliza os veículos afetados."""
+        if not isinstance(data, dict):
+            return data
+        key = "l" if "l" in data else "lines"
+        lines = data.get(key)
+        if not isinstance(lines, list):
+            return data
+        valid = []
+        rejected = 0
+        for line in lines:
+            try:
+                valid.append(LinePositions.model_validate(line))
+            except ValidationError:
+                vehicles = (
+                    line.get("vs", line.get("vehicles"))
+                    if isinstance(line, dict)
+                    else None
+                )
+                if isinstance(vehicles, list):
+                    rejected += len(vehicles)
+        return {**data, key: valid, "rejected_vehicles": rejected}
+
+    @property
+    def rejected_count(self) -> int:
+        """Veículos rejeitados pela leitura do JSON."""
+        return self.rejected_vehicles + sum(
+            line.rejected_vehicles for line in self.lines
+        )
 
     @property
     def vehicle_count(self) -> int:
-        """Total de veículos em todas as linhas."""
-        return sum(len(line.vehicles) for line in self.lines)
+        """Total de veículos recebidos, incluindo os rejeitados."""
+        return self.rejected_count + sum(len(line.vehicles) for line in self.lines)
 
 
 class OlhoVivoClient:
@@ -128,7 +209,7 @@ class OlhoVivoClient:
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self._token = token
-        self._http = http_client or httpx.AsyncClient(timeout=DEFAULT_TIMEOUT)
+        self._http = http_client if http_client is not None else _default_http_client()
         self._base_url = base_url.rstrip("/")
         self._authenticated = False
 
@@ -180,11 +261,14 @@ class OlhoVivoClient:
         response = await self._get("/Posicao", timer)
         with timer.measure(Stage.PARSE):
             try:
-                return PositionsSnapshot.model_validate(response.json())
+                snapshot = PositionsSnapshot.model_validate(response.json())
             except ValueError as exc:
                 raise InvalidResponseError(
-                    "Invalid response from /Posicao", status_code=response.status_code
+                    "Invalid response from /Posicao",
+                    status_code=response.status_code,
+                    raw_body=response.content,
                 ) from exc
+        return snapshot.model_copy(update={"raw_body": response.content})
 
     async def _get(self, path: str, timer: StageTimer) -> httpx.Response:
         if not self._authenticated:
@@ -203,6 +287,15 @@ class OlhoVivoClient:
                 status_code=response.status_code,
             )
         return response
+
+
+def _default_http_client() -> httpx.AsyncClient:
+    verify: bool | ssl.SSLContext = True
+    if sys.platform == "win32" and not (
+        os.environ.get("SSL_CERT_FILE") or os.environ.get("SSL_CERT_DIR")
+    ):
+        verify = ssl.create_default_context()
+    return httpx.AsyncClient(timeout=DEFAULT_TIMEOUT, verify=verify)
 
 
 def _raise_for_server_error(response: httpx.Response) -> None:

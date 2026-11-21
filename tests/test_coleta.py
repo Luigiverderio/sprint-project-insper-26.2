@@ -2,8 +2,10 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -18,6 +20,7 @@ from onibus.coleta.olho_vivo import (
     InvalidTokenError,
     OlhoVivoClient,
     OlhoVivoError,
+    PositionsSnapshot,
     SessionExpiredError,
     UnavailableError,
 )
@@ -125,6 +128,69 @@ async def test_client_authenticates_and_parses_positions() -> None:
     assert vehicle.reported_at == datetime(2026, 11, 18, 18, 29, 58, tzinfo=UTC)
     assert (vehicle.latitude, vehicle.longitude) == (-23.47, -46.62)
     assert snapshot.vehicle_count == 2
+
+
+@pytest.mark.parametrize(
+    ("platform", "ca_override"),
+    [
+        ("win32", None),
+        ("win32", "SSL_CERT_FILE"),
+        ("win32", "SSL_CERT_DIR"),
+        ("linux", None),
+    ],
+)
+def test_client_uses_windows_certificates_when_no_ca_is_configured(
+    monkeypatch: pytest.MonkeyPatch, platform: str, ca_override: str | None
+) -> None:
+    monkeypatch.setattr("onibus.coleta.olho_vivo.sys.platform", platform)
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    monkeypatch.delenv("SSL_CERT_DIR", raising=False)
+    if ca_override:
+        monkeypatch.setenv(ca_override, "custom-ca")
+
+    with (
+        patch("onibus.coleta.olho_vivo.ssl.create_default_context") as context,
+        patch("onibus.coleta.olho_vivo.httpx.AsyncClient") as client,
+    ):
+        OlhoVivoClient("test")
+
+    if platform == "win32" and ca_override is None:
+        context.assert_called_once_with()
+        assert client.call_args.kwargs["verify"] is context.return_value
+    else:
+        context.assert_not_called()
+        assert client.call_args.kwargs["verify"] is True
+
+
+def test_snapshot_keeps_vehicles_with_invalid_catalogue_metadata() -> None:
+    body = deepcopy(POSITIONS)
+    body["l"][0].update(c=1273, lt0="destino\x00inválido", lt1=None)
+
+    snapshot = PositionsSnapshot.model_validate(body)
+
+    assert snapshot.vehicle_count == 2
+    assert snapshot.rejected_count == 0
+    line = snapshot.lines[0]
+    assert (line.code, line.destination, line.origin) == (None, None, None)
+
+
+@pytest.mark.parametrize("missing", ["p", "ta", "py", "px", "cl", "sl"])
+def test_snapshot_counts_records_missing_required_fields(missing: str) -> None:
+    body = deepcopy(POSITIONS)
+    malformed_line = deepcopy(body["l"][0])
+    body["l"].append(malformed_line)
+    if missing in {"cl", "sl"}:
+        del malformed_line[missing]
+        expected_rejected = 2
+    else:
+        del malformed_line["vs"][0][missing]
+        expected_rejected = 1
+
+    snapshot = PositionsSnapshot.model_validate(body)
+
+    assert snapshot.vehicle_count == 4
+    assert snapshot.rejected_count == expected_rejected
+    assert sum(len(line.vehicles) for line in snapshot.lines) == 4 - expected_rejected
 
 
 async def test_token_is_not_logged(caplog: pytest.LogCaptureFixture) -> None:

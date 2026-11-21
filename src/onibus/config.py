@@ -1,5 +1,6 @@
 """Configuração da aplicação por variáveis de ambiente."""
 
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, SecretStr
@@ -30,6 +31,8 @@ class Settings(BaseSettings):
     # Coletor: papel onibus_coletor (só INSERT no bruto).
     coletor_database_user: str = "coletor_app"
     coletor_database_password: SecretStr | None = None
+    coleta_dir_brutos: Path = Path("dados/olho_vivo")
+    coleta_intervalo_s: int = Field(default=30, ge=15, le=60)
     cors_origins: list[str] = Field(default_factory=list)
 
 

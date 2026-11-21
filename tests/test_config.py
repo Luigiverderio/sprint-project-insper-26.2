@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -26,6 +28,28 @@ def test_settings_read_collector_database_login(
     assert settings.coletor_database_user == "coletor_app"
     assert settings.coletor_database_password is not None
     assert settings.coletor_database_password.get_secret_value() == "senha-do-coletor"
+
+
+@pytest.mark.parametrize("interval", [15, 60])
+def test_settings_accept_collection_boundaries(
+    monkeypatch: pytest.MonkeyPatch, interval: int, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("APP_COLETA_INTERVALO_S", str(interval))
+    monkeypatch.setenv("APP_COLETA_DIR_BRUTOS", str(tmp_path))
+
+    settings = Settings()
+
+    assert settings.coleta_intervalo_s == interval
+    assert settings.coleta_dir_brutos == tmp_path
+
+
+@pytest.mark.parametrize("interval", [14, 61])
+def test_settings_reject_out_of_range_collection_interval(
+    monkeypatch: pytest.MonkeyPatch, interval: int
+) -> None:
+    monkeypatch.setenv("APP_COLETA_INTERVALO_S", str(interval))
+    with pytest.raises(ValidationError, match="coleta_intervalo_s"):
+        Settings()
 
 
 def test_settings_reject_invalid_log_level(monkeypatch: pytest.MonkeyPatch) -> None:

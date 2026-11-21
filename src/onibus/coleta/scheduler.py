@@ -1,7 +1,7 @@
-"""Agendamento do ciclo de coleta: um ciclo a cada 30 s.
+"""Agendamento do ciclo de coleta: um ciclo a cada 30 s por padrão.
 
 O APScheduler dispara o ciclo num intervalo fixo, sem deixar dois ciclos
-rodarem ao mesmo tempo. O coletor limita cada ciclo a 25 s, abaixo do intervalo;
+rodarem ao mesmo tempo. O prazo da coleta é configurado abaixo do intervalo;
 se mesmo assim um ciclo demorar mais que o intervalo, o disparo seguinte é
 pulado e fica registrado no log, em vez de acumular ciclos.
 

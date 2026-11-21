@@ -1,8 +1,8 @@
 """Roda a coleta da Olho Vivo: ``python -m onibus.coleta``.
 
 Sem argumentos, roda um ciclo só, para conferir o token e a conexão, e não grava
-nada no banco. Com ``--schedule``, roda um ciclo a cada 30 s até receber Ctrl+C
-ou SIGTERM e grava cada ciclo no bruto (:mod:`onibus.coleta.gravacao`). O token
+nada no banco. Com ``--schedule``, roda no intervalo configurado até receber
+Ctrl+C ou SIGTERM e grava cada ciclo no bruto (:mod:`onibus.coleta.gravacao`). O token
 vem de ``APP_OLHO_VIVO_TOKEN``, e o login do banco, de
 ``APP_COLETOR_DATABASE_USER`` e ``APP_COLETOR_DATABASE_PASSWORD`` (no ``.env``).
 """
@@ -12,6 +12,7 @@ import asyncio
 import logging
 import signal
 import sys
+from datetime import timedelta
 
 from onibus.coleta.coletor import CycleStatus, PositionCollector
 from onibus.coleta.etapas import format_durations
@@ -48,7 +49,7 @@ async def collect_once(settings: Settings) -> int:
 
 
 async def collect_forever(settings: Settings, stop: asyncio.Event) -> int:
-    """Coleta a cada 30 s até ``stop``, gravando cada ciclo no banco.
+    """Coleta no intervalo configurado até ``stop``, gravando cada ciclo.
 
     Devolve o código de saída do processo.
     """
@@ -59,13 +60,16 @@ async def collect_forever(settings: Settings, stop: asyncio.Event) -> int:
     if engine is None:
         print(MISSING_DATABASE_LOGIN, file=sys.stderr)
         return 2
-    recorder = CycleRecorder(engine)
+    recorder = CycleRecorder(engine, archive_dir=settings.coleta_dir_brutos)
+    interval = timedelta(seconds=settings.coleta_intervalo_s)
     try:
         async with OlhoVivoClient(
             settings.olho_vivo_token.get_secret_value()
         ) as client:
             scheduler = CollectionScheduler(
-                PositionCollector(client), on_cycle=recorder.record
+                PositionCollector(client, deadline=interval - timedelta(seconds=5)),
+                interval=interval,
+                on_cycle=recorder.record,
             )
             await scheduler.run(stop)
     finally:
@@ -91,7 +95,7 @@ def main() -> None:
     parser.add_argument(
         "--schedule",
         action="store_true",
-        help="roda um ciclo a cada 30 s até Ctrl+C, em vez de um ciclo só",
+        help="roda no intervalo de APP_COLETA_INTERVALO_S até Ctrl+C",
     )
     args = parser.parse_args()
 

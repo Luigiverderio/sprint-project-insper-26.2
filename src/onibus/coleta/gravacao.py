@@ -18,12 +18,17 @@ Uma falha ao gravar vai para o log e não para a coleta. O ciclo seguinte roda
 normalmente, e o ciclo perdido fica sem linha em ``ciclos_coleta``.
 """
 
+import asyncio
+import gzip
 import logging
 import time
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 from uuid import UUID
 
 import httpx
@@ -36,6 +41,7 @@ from onibus.coleta.etapas import Stage, StageTimer, format_durations
 from onibus.coleta.olho_vivo import (
     InvalidResponseError,
     InvalidTokenError,
+    LinePositions,
     OlhoVivoError,
     PositionsSnapshot,
     SessionExpiredError,
@@ -78,16 +84,59 @@ INSERT_POSITIONS = text(
     """
 )
 
+UPSERT_LINES = text(
+    """
+    WITH written AS (
+        INSERT INTO referencia.linhas_olhovivo AS known
+            (cod_linha_sentido, letreiro, sentido_api, letreiro_destino,
+             letreiro_origem, visto_primeiro_em, visto_ultimo_em)
+        SELECT line.*, :observed_at, :observed_at
+          FROM unnest(
+                 CAST(:codes AS integer[]), CAST(:labels AS text[]),
+                 CAST(:directions AS smallint[]), CAST(:destinations AS text[]),
+                 CAST(:origins AS text[])
+               ) AS line(code, label, direction, destination, origin)
+         ORDER BY line.code
+        ON CONFLICT (cod_linha_sentido) DO UPDATE SET
+            letreiro = EXCLUDED.letreiro,
+            sentido_api = EXCLUDED.sentido_api,
+            letreiro_destino = EXCLUDED.letreiro_destino,
+            letreiro_origem = EXCLUDED.letreiro_origem,
+            visto_ultimo_em = EXCLUDED.visto_ultimo_em
+        WHERE EXCLUDED.visto_ultimo_em >= known.visto_ultimo_em
+          AND (
+            EXCLUDED.visto_ultimo_em >= known.visto_ultimo_em + interval '1 hour'
+            OR (known.letreiro, known.sentido_api,
+                known.letreiro_destino, known.letreiro_origem)
+               IS DISTINCT FROM
+               (EXCLUDED.letreiro, EXCLUDED.sentido_api,
+                EXCLUDED.letreiro_destino, EXCLUDED.letreiro_origem)
+          )
+        RETURNING cod_linha_sentido, letreiro, sentido_api,
+                  letreiro_destino, letreiro_origem
+    )
+    SELECT written.cod_linha_sentido
+      FROM written
+      JOIN referencia.linhas_olhovivo AS previous USING (cod_linha_sentido)
+     WHERE (previous.letreiro, previous.sentido_api,
+            previous.letreiro_destino, previous.letreiro_origem)
+           IS DISTINCT FROM
+           (written.letreiro, written.sentido_api,
+            written.letreiro_destino, written.letreiro_origem)
+    """
+)
+
 INSERT_CYCLE = text(
     f"""
     INSERT INTO bruto.ciclos_coleta
         (id, fonte, iniciado_em, concluido_em, status, http_status, hora_api,
-         n_recebidos, n_inseridos, n_rejeitados, versao_coletor, erro,
+         n_recebidos, n_inseridos, n_rejeitados, versao_coletor, erro, arquivo_bruto,
          {", ".join(DURATION_COLUMNS.values())})
     VALUES
         (:id, :fonte, :iniciado_em, :concluido_em, :status, :http_status,
          :hora_api, :n_recebidos, :n_inseridos, :n_rejeitados, :versao_coletor,
-         :erro, {", ".join(f":{column}" for column in DURATION_COLUMNS.values())})
+         :erro, :arquivo_bruto,
+         {", ".join(f":{column}" for column in DURATION_COLUMNS.values())})
     """
 )
 
@@ -100,7 +149,7 @@ class PositionBatch:
     prefixo: list[int] = field(default_factory=list)
     cod_linha_sentido: list[int] = field(default_factory=list)
     sentido_api: list[int] = field(default_factory=list)
-    acessivel: list[bool] = field(default_factory=list)
+    acessivel: list[bool | None] = field(default_factory=list)
     latitude: list[float] = field(default_factory=list)
     longitude: list[float] = field(default_factory=list)
     rejected: int = 0
@@ -116,7 +165,7 @@ def build_batch(snapshot: PositionsSnapshot) -> PositionBatch:
     a posição com coordenada fora da faixa (ou não finita) ou sentido que não
     seja 1 ou 2.
     """
-    batch = PositionBatch()
+    batch = PositionBatch(rejected=snapshot.rejected_count)
     for line in snapshot.lines:
         for vehicle in line.vehicles:
             if not (
@@ -180,6 +229,24 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _write_archive(path: Path, raw_body: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = NamedTemporaryFile(dir=path.parent, suffix=".tmp", delete=False)
+    temporary_path = Path(temporary.name)
+    try:
+        with (
+            temporary,
+            gzip.GzipFile(
+                filename="", fileobj=temporary, mode="wb", compresslevel=6, mtime=0
+            ) as compressed,
+        ):
+            compressed.write(raw_body)
+        temporary_path.replace(path)
+    finally:
+        with suppress(OSError):
+            temporary_path.unlink(missing_ok=True)
+
+
 class CycleRecorder:
     """Grava cada ciclo no bruto; use :meth:`record` como ``on_cycle``."""
 
@@ -187,11 +254,13 @@ class CycleRecorder:
         self,
         engine: AsyncEngine,
         *,
+        archive_dir: Path | None = None,
         collector_version: str = COLLECTOR_VERSION,
         clock: Callable[[], datetime] = _utc_now,
         stage_clock: Callable[[], float] = time.perf_counter,
     ) -> None:
         self._engine = engine
+        self._archive_dir = archive_dir
         self._version = collector_version
         self._clock = clock
         self._stage_clock = stage_clock
@@ -224,18 +293,28 @@ class CycleRecorder:
         received: int | None = None
         inserted: int | None = None
         rejected: int | None = None
+        changed_lines: list[int] = []
         async with self._engine.begin() as connection:
             cycle_id = (
                 await connection.execute(text("SELECT public.uuid_v7()"))
             ).scalar_one()
-            if result.snapshot is not None:
-                batch = build_batch(result.snapshot)
+            snapshot = result.snapshot
+            raw_body = None
+            if snapshot is not None:
+                batch = build_batch(snapshot)
                 timer = StageTimer(self._stage_clock)
                 with timer.measure(Stage.WRITE):
+                    changed_lines = await self._upsert_lines(
+                        connection, snapshot, result.started_at
+                    )
                     inserted = await self._insert_positions(connection, cycle_id, batch)
                 durations.update(timer.durations())
-                received = result.snapshot.vehicle_count
+                received = snapshot.vehicle_count
                 rejected = batch.rejected
+                raw_body = snapshot.raw_body
+            elif isinstance(result.error, InvalidResponseError):
+                raw_body = result.error.raw_body
+            archive = await self._archive(cycle_id, result.started_at, raw_body)
             status = classify(result)
             await connection.execute(
                 INSERT_CYCLE,
@@ -248,19 +327,24 @@ class CycleRecorder:
                     "concluido_em": max(result.finished_at, self._clock()),
                     "status": status,
                     "http_status": http_status(result),
-                    "hora_api": (
-                        result.snapshot.reference_time if result.snapshot else None
-                    ),
+                    "hora_api": snapshot.reference_time
+                    if snapshot is not None
+                    else None,
                     "n_recebidos": received,
                     "n_inseridos": inserted,
                     "n_rejeitados": rejected,
                     "versao_coletor": self._version,
                     "erro": result.failure_cause if status != "ok" else None,
+                    "arquivo_bruto": archive,
                 }
                 | {
                     column: durations.get(stage)
                     for stage, column in DURATION_COLUMNS.items()
                 },
+            )
+        if changed_lines:
+            logger.info(
+                "Olho Vivo catalogue metadata changed for cl: %s", changed_lines
             )
         return RecordedCycle(
             cycle_id=cycle_id,
@@ -270,6 +354,48 @@ class CycleRecorder:
             rejected=rejected,
             stage_durations=durations,
         )
+
+    async def _archive(
+        self, cycle_id: UUID, started_at: datetime, raw_body: bytes | None
+    ) -> str | None:
+        if self._archive_dir is None or raw_body is None:
+            return None
+        day = started_at.astimezone(UTC)
+        relative = Path(f"{day:%Y/%m/%d}/{cycle_id}.json.gz")
+        try:
+            await asyncio.to_thread(
+                _write_archive, self._archive_dir / relative, raw_body
+            )
+        except OSError as exc:
+            logger.warning("Could not archive Olho Vivo cycle %s: %s", cycle_id, exc)
+            return None
+        return relative.as_posix()
+
+    @staticmethod
+    async def _upsert_lines(
+        connection: AsyncConnection,
+        snapshot: PositionsSnapshot,
+        observed_at: datetime,
+    ) -> list[int]:
+        lines: dict[int, LinePositions] = {
+            line.line_id: line
+            for line in snapshot.lines
+            if line.direction in (1, 2) and line.code
+        }
+        if not lines:
+            return []
+        result = await connection.execute(
+            UPSERT_LINES,
+            {
+                "observed_at": observed_at,
+                "codes": list(lines),
+                "labels": [line.code for line in lines.values()],
+                "directions": [line.direction for line in lines.values()],
+                "destinations": [line.destination for line in lines.values()],
+                "origins": [line.origin for line in lines.values()],
+            },
+        )
+        return list(result.scalars())
 
     @staticmethod
     async def _insert_positions(

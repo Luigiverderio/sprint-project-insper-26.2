@@ -5,9 +5,13 @@ Os de banco sobem um PostgreSQL descartável com testcontainers, na imagem do
 (``onibus_coletor``), como a coleta contínua faz. Sem Docker, são pulados.
 """
 
+import gzip
+import json
 import logging
 from collections.abc import AsyncIterator, Callable, Iterator
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -277,6 +281,144 @@ async def test_collected_cycle_is_recorded_with_its_positions(
         "1000|1273|1|t|-23.5|-46.6|2026-11-19 14:59:50",
         "1001|1273|1|t|-23.5|-46.6|2026-11-19 15:00:05",
     ]
+
+
+async def test_line_catalogue_refreshes_hourly_or_when_metadata_changes(
+    db: PostgresContainer, engine: AsyncEngine, caplog: pytest.LogCaptureFixture
+) -> None:
+    payload = _positions(6000)
+    payload["l"][0]["cl"] = 91273
+    recorder = CycleRecorder(engine)
+    initial = _result(
+        CycleStatus.SUCCESS, snapshot=PositionsSnapshot.model_validate(payload)
+    )
+
+    def catalogue() -> list[str]:
+        return run_sql(
+            db,
+            "SELECT letreiro, sentido_api, letreiro_destino, letreiro_origem,"
+            " extract(epoch FROM visto_primeiro_em)::bigint,"
+            " extract(epoch FROM visto_ultimo_em)::bigint"
+            " FROM referencia.linhas_olhovivo WHERE cod_linha_sentido = 91273",
+        ).split("|")
+
+    await recorder.write(initial)
+    started = int(initial.started_at.timestamp())
+    first = catalogue()
+    assert first == [
+        "701A-10",
+        "1",
+        "METRÔ SANTANA",
+        "JD. PERI",
+        str(started),
+        str(started),
+    ]
+
+    refresh = initial.started_at + timedelta(hours=1)
+    await recorder.write(replace(initial, started_at=refresh - timedelta(seconds=1)))
+    assert catalogue() == first
+
+    await recorder.write(replace(initial, started_at=refresh))
+    assert catalogue() == [*first[:-1], str(started + 3600)]
+
+    payload["l"][0]["c"] = "701A-21"
+    payload["l"][0]["lt0"] = "TERMINAL NOVO"
+    changed_at = refresh + timedelta(seconds=30)
+    with caplog.at_level(logging.INFO, logger="onibus.coleta.gravacao"):
+        await recorder.write(
+            replace(
+                initial,
+                started_at=changed_at,
+                snapshot=PositionsSnapshot.model_validate(payload),
+            )
+        )
+    assert catalogue() == [
+        "701A-21",
+        "1",
+        "TERMINAL NOVO",
+        "JD. PERI",
+        str(started),
+        str(started + 3630),
+    ]
+    assert "catalogue metadata changed for cl: [91273]" in caplog.text
+
+    # Uma resposta atrasada não pode sobrescrever o catálogo mais recente.
+    await recorder.write(replace(initial, started_at=refresh))
+    assert catalogue()[0] == "701A-21"
+
+
+async def test_cycle_archives_original_body_and_keeps_optional_fields_null(
+    db: PostgresContainer, engine: AsyncEngine, tmp_path: Path
+) -> None:
+    now = datetime.now(UTC)
+    payload = _positions(7000)
+    line = payload["l"][0]
+    line["cl"] = 91274
+    line["lt0"] = "destino\x00inválido"
+    del line["lt1"]
+    del line["vs"][0]["a"]
+    line["vs"][0]["ta"] = now.isoformat()
+    del line["vs"][1]["ta"]
+    raw = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode()
+
+    def olho_vivo(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/Login/Autenticar"):
+            return httpx.Response(200, json=True)
+        return httpx.Response(200, content=raw)
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(olho_vivo))
+    async with OlhoVivoClient(
+        "ok", base_url="https://ov.test", http_client=http
+    ) as client:
+        result = await PositionCollector(
+            client, wait=wait_none(), clock=lambda: now
+        ).run_cycle()
+
+    recorded = await CycleRecorder(engine, archive_dir=tmp_path).write(result)
+
+    assert (recorded.received, recorded.inserted, recorded.rejected) == (4, 1, 3)
+    [path] = _cycle_row(db, recorded.cycle_id, "arquivo_bruto")
+    assert path == f"{now:%Y/%m/%d}/{recorded.cycle_id}.json.gz"
+    assert gzip.decompress((tmp_path / path).read_bytes()) == raw
+    assert (
+        run_sql(
+            db,
+            "SELECT letreiro_destino IS NULL, letreiro_origem IS NULL"
+            " FROM referencia.linhas_olhovivo WHERE cod_linha_sentido = 91274",
+        )
+        == "t|t"
+    )
+    assert (
+        run_sql(
+            db,
+            "SELECT codigo_linha, acessivel IS NULL FROM operacao.posicoes_atuais"
+            " WHERE prefixo = 7000",
+        )
+        == "701A-10|t"
+    )
+
+
+async def test_archive_disk_error_does_not_lose_cycle(
+    db: PostgresContainer,
+    engine: AsyncEngine,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    blocked = tmp_path / "file"
+    blocked.write_text("occupied", encoding="utf-8")
+    snapshot = _snapshot(8000).model_copy(
+        update={"raw_body": b"ignored by failing disk"}
+    )
+    recorder = CycleRecorder(engine, archive_dir=blocked)
+
+    recorded = await recorder.write(_result(CycleStatus.SUCCESS, snapshot=snapshot))
+
+    assert recorded.inserted == 2
+    assert _cycle_row(db, recorded.cycle_id, "status, arquivo_bruto IS NULL") == [
+        "ok",
+        "t",
+    ]
+    assert "Could not archive Olho Vivo cycle" in caplog.text
 
 
 async def test_repeated_positions_are_ignored(

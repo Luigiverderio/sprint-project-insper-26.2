@@ -135,16 +135,38 @@ Coloque a mesma senha em `APP_COLETOR_DATABASE_PASSWORD` e o token da API em
 
 ```sh
 uv run --locked python -m onibus.coleta             # um ciclo só, para conferir o token
-uv run --locked python -m onibus.coleta --schedule  # um ciclo a cada 30 s, grava no banco
+uv run --locked python -m onibus.coleta --schedule  # coleta e grava continuamente
 ```
 
 Cada ciclo faz até 5 tentativas, com espera crescente, e autentica de novo se a sessão expirar.
-O ciclo tem prazo de 25 s: se a API travar, ele termina como falha antes do próximo disparo.
-Se mesmo assim um ciclo passar de 30 s, o disparo seguinte é pulado e fica no log, sem ciclos em paralelo.
+Use `APP_COLETA_INTERVALO_S` para configurar de 15 a 60 s entre disparos (padrão 30).
+A coleta tem prazo de 5 s a menos que o intervalo. Se o ciclo com a gravação
+ainda estiver em andamento, o próximo disparo é pulado e fica no log.
 Depois de 10 minutos seguidos de falha, o log registra um alerta CRITICAL.
 Cada ciclo vai para o log com a duração total e a de cada etapa (`login`, `request`, `parse`, `retry_wait`, `write`).
-Com `--schedule`, cada ciclo, com sucesso ou falha, vira uma linha em `bruto.ciclos_coleta`, com as durações das etapas, e as posições vão para `bruto.posicoes_gps` na mesma transação.
-Posições repetidas (mesmo veículo e horário de GPS) são ignoradas; coordenada ou sentido inválido é descartado e contado em `n_rejeitados`.
+Com `--schedule`, o ciclo, as posições e o catálogo em
+`referencia.linhas_olhovivo` são gravados na mesma transação.
+Linhas novas entram com o horário do ciclo. Para linhas conhecidas, o último
+avistamento é renovado após uma hora ou quando o letreiro, sentido ou destinos
+mudarem. Mudanças no catálogo aparecem no log.
+
+As posições repetidas (mesmo veículo e horário de GPS) são ignoradas.
+Veículos sem identificador, horário, coordenada ou linha/sentido válido entram
+na contagem de `n_rejeitados`. Acessibilidade e destinos ausentes ficam nulos.
+
+`APP_COLETA_DIR_BRUTOS` aponta para o diretório gravável dos brutos
+(padrão `dados/olho_vivo`). Cada corpo recebido com HTTP 200 da
+`/Posicao` é compactado sem reformatar em `AAAA/MM/DD/<ciclo_id>.json.gz`,
+com a data de início em UTC. O caminho relativo fica em
+`bruto.ciclos_coleta.arquivo_bruto`. Se o disco falhar, o ciclo é gravado
+com caminho nulo e a falha aparece no log. Em contêiner, configure o
+diretório em um volume persistente.
+
+Para dimensionar o armazenamento, multiplique o tamanho médio de um
+`.json.gz` por `86400 / APP_COLETA_INTERVALO_S` ciclos por dia (2.880 no padrão).
+Em 21/11/2026, três ciclos reais com cerca de 6,7 mil ônibus geraram, em média,
+155 kB por ciclo (gzip nível 6), o equivalente a cerca de 0,45 GB/dia a 30 s.
+Use uma amostra mais longa para dimensionar o armazenamento do T13.
 Sem `APP_COLETOR_DATABASE_PASSWORD`, o `--schedule` não sobe. O ciclo único não grava nada.
 Fora do Compose, `APP_DATABASE_HOST` e `APP_DATABASE_PORT` apontam para o banco, como na API.
 
