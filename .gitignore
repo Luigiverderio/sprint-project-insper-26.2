@@ -7,10 +7,12 @@
 CLAUDE.local.md
 .claude/settings.local.json
 
-# docs/ fica fora do git, exceto os ADRs (decisões do time) e o modelo do banco (T5)
+# docs/ fica fora do git, exceto os ADRs (decisões do time), o modelo do banco (T5)
+# e o plano de deploy na AWS (T13)
 docs/*
 !docs/adr-*.md
 !docs/modelo_banco/
+!docs/deploy-aws.md
 
 # Python e ferramentas de qualidade
 __pycache__/
